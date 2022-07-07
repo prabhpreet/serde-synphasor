@@ -4,6 +4,13 @@
 /// let x = 5;
 /// ```
 
+pub struct Test;
+impl Test {
+    fn hello() {
+        println!("Hello");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
