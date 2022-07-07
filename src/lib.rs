@@ -1,3 +1,9 @@
+/// # Test
+///
+/// ```
+/// let x = 5;
+/// ```
+
 #[cfg(test)]
 mod tests {
     #[test]
