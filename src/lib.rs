@@ -1,21 +1,12 @@
-/// # Test
-///
-/// ```
-/// let x = 5;
-/// ```
+pub mod config;
+pub mod error;
+pub mod message;
+pub mod serializer;
+pub use crate::config::Config;
+pub use crate::error::ParseError;
+pub use crate::message::*;
+pub use crate::serializer::SynSerializer;
 
-pub struct Test;
-impl Test {
-    fn hello() {
-        println!("Hello");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
+pub fn from_bytes(_bytes: &[u8], _config: Option<Config>) -> Result<Message, ParseError> {
+    unimplemented!()
 }
