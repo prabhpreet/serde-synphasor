@@ -36,7 +36,7 @@ impl ByteContainer for StaticContainer {
 /// Tests Basic Baseframe Serialization.
 /// Valid checksum validation is ignored in test
 #[test]
-fn base_frame_serializization() {
+fn base_frame_serialization() {
     pretty_env_logger::init();
 
     let message = Message {

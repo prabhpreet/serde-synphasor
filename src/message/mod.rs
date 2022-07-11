@@ -190,3 +190,94 @@ pub enum DataType {
     Data,
     Cmd,
 }
+
+#[cfg(test)]
+mod MessageTest {
+
+    use super::*;
+    use serde_test::{assert_ser_tokens, Token};
+
+    #[test]
+    fn sync_idcode_soc_fracsec_encoding() {
+        let message = Message {
+            version: FrameVersion::Std2005,
+            idcode: 60,
+            time: Time {
+                soc: 1_218_023_578,
+                fracsec: u24::new(3419861).unwrap(),
+                leap_second_direction: false,
+                leap_second_occured: false,
+                leap_second_pending: false,
+                time_quality: TimeQuality::Locked,
+            },
+            data: DataType::Cmd,
+        };
+
+        assert_ser_tokens(
+            &message,
+            &[
+                Token::Struct {
+                    name: "Frame",
+                    len: 6,
+                },
+                Token::Str("sync"),
+                Token::U16(0xAA41),
+                Token::Str("framesize"),
+                Token::U16(0x0010),
+                Token::Str("idcode"),
+                Token::U16(0x003C),
+                Token::Str("soc"),
+                Token::U32(0x4899909A),
+                Token::Str("fracsec"),
+                Token::U32(0x00342ED5),
+                Token::Str("data"),
+                Token::Enum { name: "DataType" },
+                Token::Str("Cmd"),
+                Token::Unit,
+                Token::StructEnd,
+            ],
+        )
+    }
+
+    #[test]
+    fn time_quality_check() {
+        let message = Message {
+            version: FrameVersion::Std2011,
+            idcode: 0,
+            time: Time {
+                soc: 0,
+                fracsec: u24::new(0).unwrap(),
+                leap_second_direction: true,
+                leap_second_occured: true,
+                leap_second_pending: true,
+                time_quality: TimeQuality::Fault,
+            },
+            data: DataType::Data,
+        };
+
+        assert_ser_tokens(
+            &message,
+            &[
+                Token::Struct {
+                    name: "Frame",
+                    len: 6,
+                },
+                Token::Str("sync"),
+                Token::U16(0xAA02),
+                Token::Str("framesize"),
+                Token::U16(0x0010),
+                Token::Str("idcode"),
+                Token::U16(0x0000),
+                Token::Str("soc"),
+                Token::U32(0x00000000),
+                Token::Str("fracsec"),
+                Token::U32(0x7F000000),
+                Token::Str("data"),
+                Token::Enum { name: "DataType" },
+                Token::Str("Data"),
+                Token::Unit,
+                Token::StructEnd,
+            ],
+        );
+    }
+}
