@@ -377,6 +377,28 @@ mod deserialize_test {
     use serde_test::{assert_de_tokens, Token};
 
     #[test]
+    fn decode_error_fracsec_reserved_bit_set() {
+        let t = Time::decode(0, 0x80000000);
+        assert_eq!(
+            t,
+            Err(ParseError::BaseParseError(
+                BaseParseError::IncorrectReservedFracsecBit
+            ))
+        );
+    }
+
+    #[test]
+    fn decode_error_fracsec_unknown_time_quality() {
+        let t = Time::decode(0, 0x0F000000);
+        assert_eq!(
+            t,
+            Err(ParseError::BaseParseError(
+                BaseParseError::UnknownTimeQuality
+            ))
+        );
+    }
+
+    #[test]
     fn deserialize_sample_message() {
         let message = Message {
             version: FrameVersion::Std2011,
