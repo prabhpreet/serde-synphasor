@@ -1,12 +1,47 @@
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum ParseError {
-    ConfigNeeded,
-    TypeRangeOverflow,
+    ConfigNeeded,      //Configuration needs to be provided
+    TypeRangeOverflow, //Value overflow of allowed range for type
+    BaseParseError(BaseParseError),
+    Custom,
+    IllegalAccess,
+    UnknownFrameType,
+    InvalidChecksum,
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
+pub enum BaseParseError {
+    IncorrectSyncWord, // Sync word is not 0xAA
+    IncorrectReservedSyncBit,
+    UnknownVersionNumber, // Unknown standard version number
+    IncorrectReservedFracsecBit,
+    UnknownTimeQuality,
+}
+
+impl Display for ParseError {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl Display for BaseParseError {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+impl std::error::Error for ParseError {}
+impl serde::de::Error for ParseError {
+    fn custom<T>(_msg: T) -> Self
+    where
+        T: Display,
+    {
+        ParseError::Custom
+    }
+}
+
+#[derive(PartialEq, Debug)]
 pub enum SerializeError {
     SpaceExceeded,
     Custom,
