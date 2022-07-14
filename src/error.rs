@@ -7,7 +7,6 @@ pub enum ParseError {
     BaseParseError(BaseParseError),
     Custom,
     IllegalAccess,
-    UnknownFrameType,
     InvalidChecksum,
 }
 
@@ -15,9 +14,10 @@ pub enum ParseError {
 pub enum BaseParseError {
     IncorrectSyncWord, // Sync word is not 0xAA
     IncorrectReservedSyncBit,
-    UnknownVersionNumber, // Unknown standard version number
+    UnknownFrameVersionNumber, // Unknown standard version number
     IncorrectReservedFracsecBit,
     UnknownTimeQuality,
+    UnknownFrameType,
 }
 
 impl Display for ParseError {

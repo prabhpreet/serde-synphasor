@@ -1,4 +1,4 @@
-use crate::{deserializer::SynDeserializer, error::BaseParseError, ParseError};
+use crate::{error::BaseParseError, ParseError};
 use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -86,7 +86,7 @@ impl TryFrom<Frame> for Message {
 
     fn try_from(value: Frame) -> Result<Self, Self::Error> {
         // Check Sync: Frame synchronization word.
-        if (value.sync & 0xAA00) != 0xAA00 {
+        if (value.sync & 0xFF00) != 0xAA00 {
             return Err(ParseError::BaseParseError(
                 BaseParseError::IncorrectSyncWord,
             ));
@@ -106,7 +106,7 @@ impl TryFrom<Frame> for Message {
             //         Version 3 (0010) for messages added in this revision,IEEE Std C37.118.2-2011.
             _ => {
                 return Err(ParseError::BaseParseError(
-                    BaseParseError::UnknownVersionNumber,
+                    BaseParseError::UnknownFrameVersionNumber,
                 ))
             }
         };
