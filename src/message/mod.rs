@@ -389,7 +389,7 @@ mod deserialize_test {
 
     #[test]
     fn decode_error_fracsec_unknown_time_quality() {
-        let t = Time::decode(0, 0x0F000000);
+        let t = Time::decode(0, 0x0C000000);
         assert_eq!(
             t,
             Err(ParseError::BaseParseError(
