@@ -1,3 +1,5 @@
+use test_log::test;
+
 use serde_synphasor::{error::SerializeError, serializer::ByteContainer, *};
 
 /**
@@ -37,8 +39,6 @@ impl ByteContainer for StaticContainer {
 /// Valid checksum validation is ignored in test
 #[test]
 fn base_frame_serialization() {
-    pretty_env_logger::init();
-
     let message = Message {
         version: FrameVersion::Std2005,
         idcode: 60,
