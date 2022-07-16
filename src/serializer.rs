@@ -75,6 +75,13 @@ where
 
     type SerializeStructVariant = Self;
 
+    fn collect_str<T>(self, _: &T) -> core::result::Result<Self::Ok, Self::Error>
+    where
+        T: ?core::marker::Sized,
+    {
+        todo!()
+    }
+
     fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
         unreachable!()
     }
