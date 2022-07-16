@@ -89,7 +89,7 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
         todo!()
     }
 
-    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
@@ -323,9 +323,12 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
                         return Err(ParseError::BaseParseError(BaseParseError::UnknownFrameType));
                     }
                 };
+                trace!("Before visit enum");
                 visitor.visit_enum(frame_type.into_deserializer())
             } else {
-                return Err(ParseError::BaseParseError(BaseParseError::UnknownFrameType));
+                Err(ParseError::BaseParseError(
+                    BaseParseError::IncorrectSyncWord,
+                ))
             }
         } else {
             todo!()
@@ -344,5 +347,175 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
         V: serde::de::Visitor<'de>,
     {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod deserializer_test {
+    use crate::DataType;
+
+    use super::*;
+    use std::marker::PhantomData;
+    use test_log::test;
+    #[test]
+    fn deserialize_u16_check_checksum() {
+        struct TestVisitor<'de> {
+            phantom: PhantomData<&'de ()>,
+        }
+        impl<'de> TestVisitor<'de> {
+            pub fn new() -> TestVisitor<'de> {
+                TestVisitor {
+                    phantom: PhantomData,
+                }
+            }
+        }
+        impl<'de> serde::de::Visitor<'de> for TestVisitor<'de> {
+            type Value = u16;
+
+            fn expecting(&self, _formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                todo!()
+            }
+            fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(v)
+            }
+        }
+        let frame_bytes: Vec<u8> = vec![
+            0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
+            0x00, 0x05,
+        ];
+        let mut u16_deserializer = SynDeserializer::new(&frame_bytes);
+        for v in frame_bytes.chunks(2) {
+            let v: [u8; 2] = v.try_into().unwrap();
+            let visitor = TestVisitor::new();
+            assert_eq!(
+                u16_deserializer.deserialize_u16(visitor),
+                Ok(u16::from_be_bytes(v))
+            );
+        }
+        let frame_checksum = u16::from_be_bytes([0x16, 0x8a]);
+        assert_eq!(u16_deserializer.checksum, frame_checksum);
+    }
+
+    #[test]
+    fn deserialize_u32_check_checksum() {
+        struct TestVisitor<'de> {
+            phantom: PhantomData<&'de ()>,
+        }
+        impl<'de> TestVisitor<'de> {
+            pub fn new() -> TestVisitor<'de> {
+                TestVisitor {
+                    phantom: PhantomData,
+                }
+            }
+        }
+        impl<'de> serde::de::Visitor<'de> for TestVisitor<'de> {
+            type Value = u32;
+
+            fn expecting(&self, _formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                todo!()
+            }
+            fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(v)
+            }
+        }
+        let frame_bytes: Vec<u8> = vec![
+            0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
+            0x00, 0x05,
+        ];
+        let mut u32_deserializer = SynDeserializer::new(&frame_bytes);
+        for v in frame_bytes.chunks(4) {
+            let v: [u8; 4] = v.try_into().unwrap();
+            let visitor = TestVisitor::new();
+            assert_eq!(
+                u32_deserializer.deserialize_u32(visitor),
+                Ok(u32::from_be_bytes(v))
+            );
+        }
+        let frame_checksum = u16::from_be_bytes([0x16, 0x8a]);
+        assert_eq!(u32_deserializer.checksum, frame_checksum);
+    }
+
+    #[test]
+    fn deserialize_enum_checksum() {
+        struct ValueVisitor<'de> {
+            phantom: PhantomData<&'de ()>,
+        }
+        impl<'de> ValueVisitor<'de> {
+            pub fn new() -> ValueVisitor<'de> {
+                ValueVisitor {
+                    phantom: PhantomData,
+                }
+            }
+        }
+        impl<'de> serde::de::Visitor<'de> for ValueVisitor<'de> {
+            type Value = u16;
+
+            fn expecting(&self, _formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                todo!()
+            }
+            fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(v)
+            }
+        }
+
+        struct TestVisitor<'de> {
+            phantom: PhantomData<&'de ()>,
+        }
+        impl<'de> TestVisitor<'de> {
+            pub fn new() -> TestVisitor<'de> {
+                TestVisitor {
+                    phantom: PhantomData,
+                }
+            }
+        }
+        impl<'de> serde::de::Visitor<'de> for TestVisitor<'de> {
+            type Value = DataType;
+
+            fn expecting(&self, _formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                todo!()
+            }
+            fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::EnumAccess<'de>,
+            {
+                trace!("Visit enum");
+                let (v, _variant_visitor) = data.variant()?;
+                trace!("Exiting Visit enum");
+                Ok(v)
+            }
+        }
+
+        let frame_bytes: Vec<u8> = vec![
+            0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
+            0x00, 0x05,
+        ];
+        let mut deserializer = SynDeserializer::new(&frame_bytes);
+        for v in frame_bytes.chunks(2) {
+            let visitor = ValueVisitor::new();
+            deserializer.deserialize_u16(visitor).unwrap();
+        }
+        let visitor = TestVisitor::new();
+        //Function flow: Visitor, Visitor.Value=DataType
+        // Deserializer-> Deserialize enum<Visitor>
+        //    Visitor.Visit_Enum(Data: Into_Deserializer for &str (StrDeserializer), with EnumAccess Trait)->V::Value
+        //         data.Variant<T>() -> (T,Variant Access), T: DeserializeSeed
+        //         data.VariantSeed<T>(seed:PhantomData) -> (T,Variant Access)
+        assert_eq!(
+            deserializer.deserialize_enum(
+                "DataType",
+                &["Header", "Cfg1", "Cfg2", "Cfg3", "Data", "Cmd"],
+                visitor
+            ),
+            Ok(DataType::Cmd)
+        );
     }
 }

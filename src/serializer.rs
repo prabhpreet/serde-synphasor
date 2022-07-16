@@ -409,3 +409,107 @@ where
         todo!()
     }
 }
+
+#[cfg(test)]
+mod serializer_test {
+    use std::vec;
+
+    use super::*;
+    use test_log::test;
+    struct VecContainer {
+        bytes: Vec<u8>,
+        index: usize,
+    }
+
+    impl VecContainer {
+        pub fn new() -> VecContainer {
+            VecContainer {
+                bytes: vec![],
+                index: 0,
+            }
+        }
+    }
+    impl ByteContainer for VecContainer {
+        fn enque(&mut self, v: u8) -> Result<(), SerializeError> {
+            self.bytes.push(v);
+            self.index += 1;
+            Ok(())
+        }
+
+        fn get(&self) -> &[u8] {
+            &self.bytes[0..self.index]
+        }
+    }
+
+    #[test]
+    fn serialize_u8_char_bytes_check_checksum() {
+        let u8_container = VecContainer::new();
+        let char_container = VecContainer::new();
+        let bytes_container = VecContainer::new();
+        let mut u8_serializer = SynSerializer::new(u8_container);
+        let mut char_serializer = SynSerializer::new(char_container);
+        let mut bytes_serializer = SynSerializer::new(bytes_container);
+        let frame_bytes: Vec<u8> = vec![
+            0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
+            0x00, 0x05,
+        ];
+        let frame_checksum = u16::from_be_bytes([0x16, 0x8a]);
+        let result = bytes_serializer.serialize_bytes(&frame_bytes);
+        assert_eq!(result, Ok(()));
+        assert_eq!(bytes_serializer.checksum, frame_checksum);
+        for value in frame_bytes {
+            let result = u8_serializer.serialize_u8(value);
+            assert_eq!(result, Ok(()));
+            let result = char_serializer.serialize_char(value as char);
+            assert_eq!(result, Ok(()));
+        }
+        assert_eq!(u8_serializer.checksum, frame_checksum);
+        assert_eq!(char_serializer.checksum, frame_checksum);
+    }
+    #[test]
+    fn serialize_u16_check_checksum() {
+        let container = VecContainer::new();
+        let mut serializer = SynSerializer::new(container);
+        let frame_bytes: Vec<u8> = vec![
+            0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
+            0x00, 0x05,
+        ];
+        let mut iter = frame_bytes.into_iter();
+        let mut frame_words: Vec<u16> = vec![];
+
+        while let (Some(a), Some(b)) = (iter.next(), iter.next()) {
+            frame_words.push(u16::from_be_bytes([a, b]));
+        }
+
+        let frame_checksum = u16::from_be_bytes([0x16, 0x8a]);
+        for value in frame_words {
+            let result = serializer.serialize_u16(value);
+            assert_eq!(result, Ok(()));
+        }
+        assert_eq!(serializer.checksum, frame_checksum);
+    }
+    #[test]
+    fn serialize_u32_check_checksum() {
+        let container = VecContainer::new();
+        let mut serializer = SynSerializer::new(container);
+        let frame_bytes: Vec<u8> = vec![
+            0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
+            0x00, 0x05,
+        ];
+        let mut iter = frame_bytes.into_iter();
+        let mut frame_words: Vec<u32> = vec![];
+
+        while let (Some(a), Some(b), Some(c), Some(d)) =
+            (iter.next(), iter.next(), iter.next(), iter.next())
+        {
+            frame_words.push(u32::from_be_bytes([a, b, c, d]));
+        }
+
+        let frame_checksum = u16::from_be_bytes([0x16, 0x8a]);
+        for value in frame_words {
+            let result = serializer.serialize_u32(value);
+            assert_eq!(result, Ok(()));
+        }
+        assert_eq!(serializer.checksum, frame_checksum);
+    }
+}
