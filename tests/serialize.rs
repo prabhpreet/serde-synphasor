@@ -1,33 +1,28 @@
 use test_log::test;
 
-use serde_synphasor::{error::SerializeError, serializer::ByteContainer, *};
+use serde_synphasor::{serializer::ByteContainer, *};
 
 /**
- * Statically allocated ByteContainer for tests
+ * Dynamically allocated ByteContainer for tests
 */
-struct StaticContainer {
-    bytes: [u8; StaticContainer::MAX_SIZE],
+struct VecContainer {
+    bytes: std::vec::Vec<u8>,
     index: usize,
 }
 
-impl StaticContainer {
-    const MAX_SIZE: usize = 65535;
-    pub fn new() -> StaticContainer {
-        StaticContainer {
-            bytes: [0; StaticContainer::MAX_SIZE],
+impl VecContainer {
+    pub fn new() -> VecContainer {
+        VecContainer {
+            bytes: vec![],
             index: 0,
         }
     }
 }
-impl ByteContainer for StaticContainer {
+impl ByteContainer for VecContainer {
     fn enque(&mut self, v: u8) -> Result<(), error::SerializeError> {
-        if self.index < StaticContainer::MAX_SIZE {
-            self.bytes[self.index] = v;
-            self.index += 1;
-            Ok(())
-        } else {
-            Err(SerializeError::SpaceExceeded)
-        }
+        self.bytes.push(v);
+        self.index += 1;
+        Ok(())
     }
 
     fn get(&self) -> &[u8] {
@@ -53,7 +48,7 @@ fn base_frame_serialization() {
         data: DataType::Cmd,
     };
 
-    let bytes = StaticContainer::new();
+    let bytes = VecContainer::new();
 
     let serializer = SynSerializer::new(bytes);
 

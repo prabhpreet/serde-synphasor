@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 #[derive(PartialEq, Debug)]
 pub enum ParseError {
     ConfigNeeded,      //Configuration needs to be provided
@@ -8,6 +6,23 @@ pub enum ParseError {
     Custom,
     IllegalAccess,
     InvalidChecksum,
+}
+
+impl serde::de::Error for ParseError {
+    fn custom<T>(_msg: T) -> Self
+    where
+        T: core::fmt::Display,
+    {
+        todo!()
+    }
+}
+
+impl serde::de::StdError for ParseError {}
+
+impl core::fmt::Display for ParseError {
+    fn fmt(&self, _f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        todo!()
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -20,43 +35,25 @@ pub enum BaseParseError {
     UnknownFrameType,
 }
 
-impl Display for ParseError {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
-
-impl Display for BaseParseError {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
-impl std::error::Error for ParseError {}
-impl serde::de::Error for ParseError {
-    fn custom<T>(_msg: T) -> Self
-    where
-        T: Display,
-    {
-        ParseError::Custom
-    }
-}
-
 #[derive(PartialEq, Debug)]
 pub enum SerializeError {
     SpaceExceeded,
     Custom,
 }
-impl Display for SerializeError {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
-impl std::error::Error for SerializeError {}
+
 impl serde::ser::Error for SerializeError {
     fn custom<T>(_msg: T) -> Self
     where
-        T: std::fmt::Display,
+        T: core::fmt::Display,
     {
-        SerializeError::Custom
+        todo!()
+    }
+}
+
+impl serde::ser::StdError for SerializeError {}
+
+impl core::fmt::Display for SerializeError {
+    fn fmt(&self, _f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        todo!()
     }
 }

@@ -1,3 +1,4 @@
+#![no_std]
 pub mod config;
 pub mod deserializer;
 pub mod error;

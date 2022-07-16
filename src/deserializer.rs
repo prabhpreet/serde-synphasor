@@ -352,10 +352,11 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
 
 #[cfg(test)]
 mod deserializer_test {
+
     use crate::DataType;
 
     use super::*;
-    use std::marker::PhantomData;
+    use core::marker::PhantomData;
     use test_log::test;
     #[test]
     fn deserialize_u16_check_checksum() {
@@ -371,10 +372,13 @@ mod deserializer_test {
         }
         impl<'de> serde::de::Visitor<'de> for TestVisitor<'de> {
             type Value = u16;
-
-            fn expecting(&self, _formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(
+                &self,
+                _: &mut core::fmt::Formatter<'_>,
+            ) -> core::result::Result<(), core::fmt::Error> {
                 todo!()
             }
+
             fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
@@ -382,7 +386,7 @@ mod deserializer_test {
                 Ok(v)
             }
         }
-        let frame_bytes: Vec<u8> = vec![
+        let frame_bytes: [u8; 16] = [
             0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
             0x00, 0x05,
         ];
@@ -413,8 +417,10 @@ mod deserializer_test {
         }
         impl<'de> serde::de::Visitor<'de> for TestVisitor<'de> {
             type Value = u32;
-
-            fn expecting(&self, _formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(
+                &self,
+                _: &mut core::fmt::Formatter<'_>,
+            ) -> core::result::Result<(), core::fmt::Error> {
                 todo!()
             }
             fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
@@ -424,7 +430,7 @@ mod deserializer_test {
                 Ok(v)
             }
         }
-        let frame_bytes: Vec<u8> = vec![
+        let frame_bytes: [u8; 16] = [
             0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
             0x00, 0x05,
         ];
@@ -455,8 +461,10 @@ mod deserializer_test {
         }
         impl<'de> serde::de::Visitor<'de> for ValueVisitor<'de> {
             type Value = u16;
-
-            fn expecting(&self, _formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(
+                &self,
+                _: &mut core::fmt::Formatter<'_>,
+            ) -> core::result::Result<(), core::fmt::Error> {
                 todo!()
             }
             fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
@@ -479,8 +487,10 @@ mod deserializer_test {
         }
         impl<'de> serde::de::Visitor<'de> for TestVisitor<'de> {
             type Value = DataType;
-
-            fn expecting(&self, _formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(
+                &self,
+                _: &mut core::fmt::Formatter<'_>,
+            ) -> core::result::Result<(), core::fmt::Error> {
                 todo!()
             }
             fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
@@ -494,12 +504,12 @@ mod deserializer_test {
             }
         }
 
-        let frame_bytes: Vec<u8> = vec![
+        let frame_bytes: [u8; 16] = [
             0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
             0x00, 0x05,
         ];
         let mut deserializer = SynDeserializer::new(&frame_bytes);
-        for v in frame_bytes.chunks(2) {
+        for _v in frame_bytes.chunks(2) {
             let visitor = ValueVisitor::new();
             deserializer.deserialize_u16(visitor).unwrap();
         }
