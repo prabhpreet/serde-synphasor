@@ -75,6 +75,13 @@ where
 
     type SerializeStructVariant = Self;
 
+    fn collect_str<T>(self, _: &T) -> core::result::Result<Self::Ok, Self::Error>
+    where
+        T: ?core::marker::Sized,
+    {
+        todo!()
+    }
+
     fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
         unreachable!()
     }
@@ -244,13 +251,6 @@ where
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         todo!()
     }
-
-    fn collect_str<T>(self, _: &T) -> Result<Self::Ok, Self::Error>
-    where
-        T: std::fmt::Display + ?Sized,
-    {
-        todo!()
-    }
 }
 
 impl<B> serde::ser::SerializeSeq for &mut SynSerializer<B>
@@ -412,26 +412,25 @@ where
 
 #[cfg(test)]
 mod serializer_test {
-    use std::vec;
 
     use super::*;
     use test_log::test;
-    struct VecContainer {
-        bytes: Vec<u8>,
+    struct FixedContainer {
+        bytes: [u8; 65535],
         index: usize,
     }
 
-    impl VecContainer {
-        pub fn new() -> VecContainer {
-            VecContainer {
-                bytes: vec![],
+    impl FixedContainer {
+        pub fn new() -> FixedContainer {
+            FixedContainer {
+                bytes: [0; 65535],
                 index: 0,
             }
         }
     }
-    impl ByteContainer for VecContainer {
+    impl ByteContainer for FixedContainer {
         fn enque(&mut self, v: u8) -> Result<(), SerializeError> {
-            self.bytes.push(v);
+            self.bytes[self.index] = v;
             self.index += 1;
             Ok(())
         }
@@ -443,13 +442,13 @@ mod serializer_test {
 
     #[test]
     fn serialize_u8_char_bytes_check_checksum() {
-        let u8_container = VecContainer::new();
-        let char_container = VecContainer::new();
-        let bytes_container = VecContainer::new();
+        let u8_container = FixedContainer::new();
+        let char_container = FixedContainer::new();
+        let bytes_container = FixedContainer::new();
         let mut u8_serializer = SynSerializer::new(u8_container);
         let mut char_serializer = SynSerializer::new(char_container);
         let mut bytes_serializer = SynSerializer::new(bytes_container);
-        let frame_bytes: Vec<u8> = vec![
+        let frame_bytes: [u8; 16] = [
             0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
             0x00, 0x05,
         ];
@@ -468,17 +467,19 @@ mod serializer_test {
     }
     #[test]
     fn serialize_u16_check_checksum() {
-        let container = VecContainer::new();
+        let container = FixedContainer::new();
         let mut serializer = SynSerializer::new(container);
-        let frame_bytes: Vec<u8> = vec![
+        let frame_bytes: [u8; 16] = [
             0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
             0x00, 0x05,
         ];
         let mut iter = frame_bytes.into_iter();
-        let mut frame_words: Vec<u16> = vec![];
+        let mut frame_words: [u16; 8] = Default::default();
 
+        let mut index = 0;
         while let (Some(a), Some(b)) = (iter.next(), iter.next()) {
-            frame_words.push(u16::from_be_bytes([a, b]));
+            frame_words[index] = u16::from_be_bytes([a, b]);
+            index += 1;
         }
 
         let frame_checksum = u16::from_be_bytes([0x16, 0x8a]);
@@ -490,19 +491,21 @@ mod serializer_test {
     }
     #[test]
     fn serialize_u32_check_checksum() {
-        let container = VecContainer::new();
+        let container = FixedContainer::new();
         let mut serializer = SynSerializer::new(container);
-        let frame_bytes: Vec<u8> = vec![
+        let frame_bytes: [u8; 16] = [
             0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
             0x00, 0x05,
         ];
         let mut iter = frame_bytes.into_iter();
-        let mut frame_words: Vec<u32> = vec![];
+        let mut frame_words: [u32; 4] = [0; 4];
+        let mut index = 0;
 
         while let (Some(a), Some(b), Some(c), Some(d)) =
             (iter.next(), iter.next(), iter.next(), iter.next())
         {
-            frame_words.push(u32::from_be_bytes([a, b, c, d]));
+            frame_words[index] = u32::from_be_bytes([a, b, c, d]);
+            index += 1;
         }
 
         let frame_checksum = u16::from_be_bytes([0x16, 0x8a]);
