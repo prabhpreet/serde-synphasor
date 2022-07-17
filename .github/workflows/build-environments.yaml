@@ -36,10 +36,7 @@ jobs:
       - name: Cargo build
         run: |
           rustup target add thumbv6m-none-eabi;
-          cargo build;
-          cargo build --features std;
           cargo build --target=thumbv6m-none-eabi;
       - name: Cargo Test
         run: |
-          cargo test;
-          cargo test --features std;
+          cargo test --target=thumbv6m-none-eabi;
