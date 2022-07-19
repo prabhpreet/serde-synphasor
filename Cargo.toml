@@ -2,12 +2,16 @@
 name = "serde-synphasor"
 version = "0.1.0"
 edition = "2021"
+# Add resolver to separate dev-dependencies: https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+resolver="2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+
 [dependencies]
 serde = {version="1.0.138", default-features=false, features=["derive"]}
-log = "0.4.0"
+log = {version="0.4.0", default-features=false}
 
 [dev-dependencies]
 test-log = "0.2.10"

@@ -1,0 +1,49 @@
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+name: Build on no_std embedded build environments
+
+jobs:
+  build:
+    name: no_std Build
+    env:
+      PROJECT_NAME_UNDERSCORE: serde_synphasor
+      CARGO_INCREMENTAL: 0
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - thumbv6m-none-eabi # Cortex-M0 and Cortex-M0+
+          - thumbv7m-none-eabi # Cortex-M3
+          - thumbv7em-none-eabi # Cortex-M4 and Cortex-M7 (no FPU)
+          - thumbv7em-none-eabihf # Cortex-M4F and Cortex-M7F (with FPU)
+          - thumbv8m.base-none-eabi # Cortex-M23
+          - thumbv8m.main-none-eabi # Cortex-M33 (no FPU)
+          - thumbv8m.main-none-eabihf # Cortex-M33 (with FPU)
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Cache dependencies
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-dependencies
+        with:
+          path: |
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            target
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('Cargo.lock') }}
+      - name: Cargo build
+        run: |
+          rustup target add ${{ matrix.target }};
+          cargo build --target=${{ matrix.target }};
