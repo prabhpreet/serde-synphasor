@@ -4,21 +4,31 @@ on:
     branches:
       - main
 
-name: Test with no_std and std
+name: Build on no_std embedded build environments
 
 jobs:
-  test:
-    name: Test
+  build:
+    name: no_std Build
     env:
       PROJECT_NAME_UNDERSCORE: serde_synphasor
       CARGO_INCREMENTAL: 0
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - thumbv6m-none-eabi # Cortex-M0 and Cortex-M0+
+          - thumbv7m-none-eabi # Cortex-M3
+          - thumbv7em-none-eabi # Cortex-M4 and Cortex-M7 (no FPU)
+          - thumbv7em-none-eabihf # Cortex-M4F and Cortex-M7F (with FPU)
+          - thumbv8m.base-none-eabi # Cortex-M23
+          - thumbv8m.main-none-eabi # Cortex-M33 (no FPU)
+          - thumbv8m.main-none-eabihf # Cortex-M33 (with FPU)
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly
+          toolchain: stable
           override: true
       - name: Cache dependencies
         uses: actions/cache@v2
@@ -35,8 +45,5 @@ jobs:
           key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('Cargo.lock') }}
       - name: Cargo build
         run: |
-          rustup target add thumbv6m-none-eabi;
-          cargo build --target=thumbv6m-none-eabi;
-      - name: Cargo Test
-        run: |
-          cargo test --target=thumbv6m-none-eabi;
+          rustup target add ${{ matrix.target }};
+          cargo build --target=${{ matrix.target }};
