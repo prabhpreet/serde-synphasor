@@ -21,7 +21,7 @@ fn base_frame_deserialization() {
             leap_second_pending: false,
             time_quality: TimeQuality::Locked,
         },
-        data: DataType::Cmd,
+        data: DataType::Cmd(CmdType::TurnOffDataFrames),
     };
 
     assert_eq!(deserialized_message, Ok(message));

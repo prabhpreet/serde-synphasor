@@ -45,7 +45,7 @@ fn base_frame_serialization() {
             leap_second_pending: false,
             time_quality: TimeQuality::Locked,
         },
-        data: DataType::Cmd,
+        data: DataType::Cmd(CmdType::TurnOffDataFrames),
     };
 
     let bytes = VecContainer::new();

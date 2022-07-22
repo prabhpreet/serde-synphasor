@@ -1,4 +1,6 @@
+pub mod cmd;
 use crate::{error::BaseParseError, ParseError};
+pub use cmd::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -52,7 +54,7 @@ impl From<Message> for Frame {
             DataType::Cfg1 => 2,
             DataType::Cfg2 => 3,
             DataType::Cfg3 => 5,
-            DataType::Cmd => 4,
+            DataType::Cmd(_) => 4,
         } << 4)
             | 0x0Fu8;
         sync &= data_type as u16 | 0xFF8F;
@@ -271,7 +273,24 @@ pub enum DataType {
     Cfg2,
     Cfg3,
     Data,
-    Cmd,
+    #[serde(
+        serialize_with = "cmd::serialize_cmd_type",
+        deserialize_with = "cmd::deserialize_cmd_type"
+    )]
+    Cmd(CmdType),
+}
+
+impl DataType {
+    fn get_framesize(&self) -> u16 {
+        match self {
+            DataType::Header => todo!(),
+            DataType::Cfg1 => todo!(),
+            DataType::Cfg2 => todo!(),
+            DataType::Cfg3 => todo!(),
+            DataType::Data => todo!(),
+            DataType::Cmd(cmd) => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -298,7 +317,7 @@ mod serialize_test {
                 leap_second_pending: false,
                 time_quality: TimeQuality::Locked,
             },
-            data: DataType::Cmd,
+            data: DataType::Cmd(CmdType::TurnOffDataFrames),
         };
 
         assert_ser_tokens(
@@ -321,7 +340,7 @@ mod serialize_test {
                 Token::Str("data"),
                 Token::Enum { name: "DataType" },
                 Token::Str("Cmd"),
-                Token::Unit,
+                Token::Bytes(&[0u8, 1u8]),
                 Token::StructEnd,
             ],
         )
@@ -363,7 +382,7 @@ mod serialize_test {
                 Token::Str("data"),
                 Token::Enum { name: "DataType" },
                 Token::Str("Data"),
-                Token::Unit,
+                Token::Bytes(&[0u8, 1u8]),
                 Token::StructEnd,
             ],
         );

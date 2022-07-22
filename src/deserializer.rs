@@ -353,7 +353,7 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
 #[cfg(test)]
 mod deserializer_test {
 
-    use crate::DataType;
+    use crate::{CmdType, DataType};
 
     use super::*;
     use core::marker::PhantomData;
@@ -525,7 +525,7 @@ mod deserializer_test {
                 &["Header", "Cfg1", "Cfg2", "Cfg3", "Data", "Cmd"],
                 visitor
             ),
-            Ok(DataType::Cmd)
+            Ok(DataType::Cmd(CmdType::TurnOffDataFrames))
         );
     }
 }
