@@ -12,8 +12,8 @@ pub struct Message {
     pub data: DataType,
 }
 
-#[serde(try_from = "FrameDataU8")]
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
+#[serde(try_from = "FrameDataU8")]
 pub(in crate) struct Frame {
     sync: u16,
     pub(crate) framesize: u16,

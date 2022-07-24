@@ -1,20 +1,15 @@
-use crate::{error::SerializeError, Message};
+use crate::{error::SerializeError, Container, Message};
 use log::trace;
 use serde::{Serialize, Serializer};
 
-pub trait ByteContainer {
-    fn enque(&mut self, v: u8) -> Result<(), SerializeError>;
-    fn get(&self) -> &[u8];
-}
-
-pub struct SynSerializer<B: ByteContainer> {
+pub struct SynSerializer<B: Container<u8>> {
     bytes: B,
     checksum: u16,
 }
 
 impl<B> SynSerializer<B>
 where
-    B: ByteContainer,
+    B: Container<u8>,
 {
     pub fn new(bytes: B) -> SynSerializer<B> {
         SynSerializer {
@@ -55,7 +50,7 @@ where
 
 impl<B> Serializer for &mut SynSerializer<B>
 where
-    B: ByteContainer,
+    B: Container<u8>,
 {
     type Ok = ();
 
@@ -255,7 +250,7 @@ where
 
 impl<B> serde::ser::SerializeSeq for &mut SynSerializer<B>
 where
-    B: ByteContainer,
+    B: Container<u8>,
 {
     type Ok = ();
 
@@ -275,7 +270,7 @@ where
 
 impl<B> serde::ser::SerializeMap for &mut SynSerializer<B>
 where
-    B: ByteContainer,
+    B: Container<u8>,
 {
     type Ok = ();
 
@@ -302,7 +297,7 @@ where
 
 impl<B> serde::ser::SerializeStruct for &mut SynSerializer<B>
 where
-    B: ByteContainer,
+    B: Container<u8>,
 {
     type Ok = ();
 
@@ -328,7 +323,7 @@ where
 
 impl<B> serde::ser::SerializeStructVariant for &mut SynSerializer<B>
 where
-    B: ByteContainer,
+    B: Container<u8>,
 {
     type Ok = ();
 
@@ -352,7 +347,7 @@ where
 
 impl<B> serde::ser::SerializeTuple for &mut SynSerializer<B>
 where
-    B: ByteContainer,
+    B: Container<u8>,
 {
     type Ok = ();
 
@@ -372,7 +367,7 @@ where
 
 impl<B> serde::ser::SerializeTupleStruct for &mut SynSerializer<B>
 where
-    B: ByteContainer,
+    B: Container<u8>,
 {
     type Ok = ();
 
@@ -392,7 +387,7 @@ where
 
 impl<B> serde::ser::SerializeTupleVariant for &mut SynSerializer<B>
 where
-    B: ByteContainer,
+    B: Container<u8>,
 {
     type Ok = ();
 
@@ -428,7 +423,7 @@ mod serializer_test {
             }
         }
     }
-    impl ByteContainer for FixedContainer {
+    impl Container<u8> for FixedContainer {
         fn enque(&mut self, v: u8) -> Result<(), SerializeError> {
             self.bytes[self.index] = v;
             self.index += 1;

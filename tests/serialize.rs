@@ -1,6 +1,6 @@
 use test_log::test;
 
-use serde_synphasor::{serializer::ByteContainer, *};
+use serde_synphasor::{Container, *};
 
 /**
  * Dynamically allocated ByteContainer for tests
@@ -18,7 +18,7 @@ impl VecContainer {
         }
     }
 }
-impl ByteContainer for VecContainer {
+impl Container<u8> for VecContainer {
     fn enque(&mut self, v: u8) -> Result<(), error::SerializeError> {
         self.bytes.push(v);
         self.index += 1;
