@@ -1,5 +1,5 @@
 pub mod cmd;
-use crate::{error::BaseParseError, ParseError};
+use crate::{deserializer::SynDeserializer, error::BaseParseError, ParseError};
 pub use cmd::*;
 use serde::{Deserialize, Serialize};
 
@@ -12,8 +12,9 @@ pub struct Message {
     pub data: DataType,
 }
 
+#[serde(try_from = "FrameDataU8")]
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct Frame {
+pub(in crate) struct Frame {
     sync: u16,
     pub(crate) framesize: u16,
     idcode: u16,
@@ -70,7 +71,7 @@ impl From<Message> for Frame {
         let (soc, fracsec) = message.time.encode();
 
         // TODO: Calculate framesize accurately
-        let framesize = FRAME_OVERHEAD;
+        let framesize = FRAME_OVERHEAD + message.data.get_framesize();
 
         Frame {
             sync,
@@ -80,6 +81,44 @@ impl From<Message> for Frame {
             fracsec,
             data: message.data,
         }
+    }
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub(in crate) struct FrameDataU8<'a> {
+    sync: u16,
+    pub(crate) framesize: u16,
+    idcode: u16,
+    soc: u32,
+    fracsec: u32,
+    data: &'a [u8],
+}
+
+impl<'a> TryFrom<FrameDataU8<'a>> for Frame {
+    type Error = ParseError;
+
+    fn try_from(value: FrameDataU8) -> Result<Self, Self::Error> {
+        let mut deserializer = SynDeserializer::new(value.data);
+        let data = match (value.sync & 0x0070u16) >> 4 {
+            0 => DataType::Data,
+            1 => DataType::Header,
+            2 => DataType::Cfg1,
+            3 => DataType::Cfg2,
+            4 => DataType::Cmd(deserialize_cmd_type(&mut deserializer)?),
+            5 => DataType::Cfg3,
+            _ => {
+                return Err(ParseError::BaseParseError(BaseParseError::UnknownFrameType));
+            }
+        };
+
+        Ok(Frame {
+            sync: value.sync,
+            framesize: value.framesize,
+            idcode: value.idcode,
+            soc: value.soc,
+            fracsec: value.fracsec,
+            data,
+        })
     }
 }
 
@@ -288,7 +327,10 @@ impl DataType {
             DataType::Cfg2 => todo!(),
             DataType::Cfg3 => todo!(),
             DataType::Data => todo!(),
-            DataType::Cmd(cmd) => todo!(),
+            DataType::Cmd(cmd) => match cmd {
+                CmdType::ExtendedFrame => todo!(),
+                _ => 2,
+            },
         }
     }
 }
@@ -330,7 +372,7 @@ mod serialize_test {
                 Token::Str("sync"),
                 Token::U16(0xAA41),
                 Token::Str("framesize"),
-                Token::U16(0x0010),
+                Token::U16(0x0012),
                 Token::Str("idcode"),
                 Token::U16(0x003C),
                 Token::Str("soc"),
@@ -359,7 +401,7 @@ mod serialize_test {
                 leap_second_pending: true,
                 time_quality: TimeQuality::Fault,
             },
-            data: DataType::Data,
+            data: DataType::Cmd(CmdType::TurnOffDataFrames),
         };
 
         assert_ser_tokens(
@@ -370,9 +412,9 @@ mod serialize_test {
                     len: 6,
                 },
                 Token::Str("sync"),
-                Token::U16(0xAA02),
+                Token::U16(0xAA42),
                 Token::Str("framesize"),
-                Token::U16(0x0010),
+                Token::U16(0x0012),
                 Token::Str("idcode"),
                 Token::U16(0x0000),
                 Token::Str("soc"),
@@ -381,8 +423,8 @@ mod serialize_test {
                 Token::U32(0x7F000000),
                 Token::Str("data"),
                 Token::Enum { name: "DataType" },
-                Token::Str("Data"),
-                Token::Unit,
+                Token::Str("Cmd"),
+                Token::Bytes(&[0u8, 1u8]),
                 Token::StructEnd,
             ],
         );
@@ -437,7 +479,7 @@ mod deserialize_test {
             &message,
             &[
                 Token::Struct {
-                    name: "Frame",
+                    name: "FrameDataU8",
                     len: 6,
                 },
                 Token::Str("sync"),
@@ -451,9 +493,7 @@ mod deserialize_test {
                 Token::Str("fracsec"),
                 Token::U32(0x7F000000),
                 Token::Str("data"),
-                Token::Enum { name: "DataType" },
-                Token::Str("Data"),
-                Token::Unit,
+                Token::BorrowedBytes(&[]),
                 Token::StructEnd,
             ],
         );

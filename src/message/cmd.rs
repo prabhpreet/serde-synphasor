@@ -1,7 +1,7 @@
 use crate::{cmd, error::BaseParseError, ParseError, SerializeError};
 use serde::{de::Error, Deserialize, Serialize};
 
-pub(crate) fn deserialize_cmd_type<'de, D>(deserializer: D) -> Result<(CmdType), D::Error>
+pub(in crate::message) fn deserialize_cmd_type<'de, D>(deserializer: D) -> Result<CmdType, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -57,7 +57,7 @@ where
             E: serde::de::Error,
         {
             self.bytes[0..v.len()].copy_from_slice(v);
-            if (v.len() < 2) {
+            if v.len() < 2 {
                 Err(E::missing_field("CMD"))
             } else {
                 Ok(v.len())
@@ -86,7 +86,7 @@ where
     })
 }
 
-pub(crate) fn serialize_cmd_type<'a, S>(
+pub(in crate::message) fn serialize_cmd_type<'a, S>(
     cmd_type: &CmdType,
     serializer: S,
 ) -> Result<S::Ok, S::Error>

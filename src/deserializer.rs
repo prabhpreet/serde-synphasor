@@ -1,4 +1,4 @@
-use crate::{error::*, Frame, Message};
+use crate::{error::*, Frame, FrameDataU8, Message};
 use log::trace;
 use serde::{
     de::{EnumAccess, IntoDeserializer, SeqAccess, VariantAccess, Visitor},
@@ -11,8 +11,8 @@ pub fn from_bytes(bytes: &[u8]) -> Result<Message, ParseError> {
         .try_into()
         .map_err(|_| ParseError::BytesExceedFrameSize)?;
     let mut deserializer = SynDeserializer::new(&bytes[..bytes.len() - 2]);
-    let frame = Frame::deserialize(&mut deserializer)?;
-    if (frame.framesize != bytes_len) {
+    let frame = FrameDataU8::deserialize(&mut deserializer)?;
+    if frame.framesize != bytes_len {
         return Err(ParseError::InvalidFrameSize);
     }
     let checksum = bytes[bytes.len() - 2..]
@@ -20,6 +20,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<Message, ParseError> {
         .map_err(|_| ParseError::IllegalAccess)?;
     let checksum = u16::from_be_bytes(checksum);
     if checksum == deserializer.get_checksum() {
+        let frame: Frame = frame.try_into()?;
         let message = frame.try_into()?;
         Ok(message)
     } else {
@@ -30,7 +31,6 @@ pub fn from_bytes(bytes: &[u8]) -> Result<Message, ParseError> {
 pub struct SynDeserializer<'de> {
     bytes: &'de [u8],
     index: usize,
-    sync: Option<u16>,
     checksum: u16,
 }
 
@@ -39,7 +39,6 @@ impl<'de> SynDeserializer<'de> {
         SynDeserializer {
             bytes,
             index: 0,
-            sync: None,
             checksum: 0xFF_FF,
         }
     }
@@ -149,9 +148,6 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
         self.enque_checksum(&bytes);
         let value = u16::from_be_bytes(bytes);
         self.index += 2;
-        if self.sync.is_none() {
-            self.sync = Some(value);
-        }
         visitor.visit_u16(value)
     }
 
@@ -215,12 +211,15 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
+        trace!("Deserialize bytes");
         let index = self.index;
         let size = self.bytes.len() - index;
         let bytes = &self.bytes[index..];
         self.enque_checksum(&bytes);
         self.index += size;
-        visitor.visit_bytes(&bytes)
+
+        trace!("Visit bytes");
+        visitor.visit_borrowed_bytes(&bytes)
     }
 
     fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
@@ -237,11 +236,11 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
         todo!()
     }
 
-    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        todo!()
+        visitor.visit_unit()
     }
 
     fn deserialize_unit_struct<V>(
@@ -322,63 +321,15 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
         V: serde::de::Visitor<'de>,
     {
         trace!("{:?}\n{:?}", name, variants);
-        if name == "DataType" {
-            if let Some(sync) = self.sync {
-                trace!("Deserialize_Enum: Before visit enum");
-                let frame_type = match (sync & 0x0070u16) >> 4 {
-                    0 => visitor.visit_enum(SynDeserializerEA::<false>::new(self)), //Data
-                    1 => visitor.visit_enum(SynDeserializerEA::<false>::new(self)), //Header
-                    2 => visitor.visit_enum(SynDeserializerEA::<false>::new(self)), //Cfg1
-                    3 => visitor.visit_enum(SynDeserializerEA::<false>::new(self)), //Cfg2
-                    4 => visitor.visit_enum(SynDeserializerEA::<true>::new(self)),  //Cmd
-                    5 => visitor.visit_enum(SynDeserializerEA::<false>::new(self)), //Cfg3
-                    _ => {
-                        return Err(ParseError::BaseParseError(BaseParseError::UnknownFrameType));
-                    }
-                };
 
-                trace!("After visit enum");
-                frame_type
-            } else {
-                Err(ParseError::BaseParseError(
-                    BaseParseError::IncorrectSyncWord,
-                ))
-            }
-        } else {
-            todo!()
-        }
+        visitor.visit_enum(SynDeserializerEA::new(self))
     }
 
     fn deserialize_identifier<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        //_visitor.visit_newtype_struct(self)
-        print_type_of(&_visitor);
-        if let Some(sync) = self.sync {
-            trace!("VisitIdentifier");
-            let frame_type = match (sync & 0x0070u16) >> 4 {
-                0 => "Data",
-                1 => "Header",
-                2 => "Cfg1",
-                3 => "Cfg2",
-                4 => "Cmd",
-                5 => "Cfg3",
-                _ => {
-                    return Err(ParseError::BaseParseError(BaseParseError::UnknownFrameType));
-                }
-            };
-            _visitor.visit_str(frame_type)
-        } else {
-            Err(ParseError::BaseParseError(
-                BaseParseError::IncorrectSyncWord,
-            ))
-        }
-
-        /*
         todo!()
-
-        */
     }
 
     fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
@@ -389,18 +340,18 @@ impl<'a, 'de> Deserializer<'de> for &'a mut SynDeserializer<'de> {
     }
 }
 
-struct SynDeserializerEA<'a, 'de: 'a, const NEWTYPE: bool> {
+struct SynDeserializerEA<'a, 'de: 'a> {
     deserializer: &'a mut SynDeserializer<'de>,
 }
 
-impl<'a, 'de, const NEWTYPE: bool> SynDeserializerEA<'a, 'de, NEWTYPE> {
+impl<'a, 'de> SynDeserializerEA<'a, 'de> {
     fn new(deserializer: &'a mut SynDeserializer<'de>) -> Self {
         trace!("EA Initialized");
         SynDeserializerEA { deserializer }
     }
 }
 
-impl<'a, 'de, const NEWTYPE: bool> EnumAccess<'de> for SynDeserializerEA<'a, 'de, NEWTYPE> {
+impl<'a, 'de> EnumAccess<'de> for SynDeserializerEA<'a, 'de> {
     type Error = ParseError;
     type Variant = Self;
 
@@ -415,17 +366,12 @@ impl<'a, 'de, const NEWTYPE: bool> EnumAccess<'de> for SynDeserializerEA<'a, 'de
     }
 }
 
-impl<'a, 'de, const NEWTYPE: bool> VariantAccess<'de> for SynDeserializerEA<'a, 'de, NEWTYPE> {
+impl<'a, 'de> VariantAccess<'de> for SynDeserializerEA<'a, 'de> {
     type Error = ParseError;
 
     fn unit_variant(self) -> Result<(), Self::Error> {
         trace!("Unit Variant");
-        if NEWTYPE {
-            Err(ParseError::InvalidEnumVariant)
-        } else {
-            trace!("Unit Variant OK");
-            Ok(())
-        }
+        Ok(())
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
@@ -433,12 +379,7 @@ impl<'a, 'de, const NEWTYPE: bool> VariantAccess<'de> for SynDeserializerEA<'a, 
         T: serde::de::DeserializeSeed<'de>,
     {
         trace!("Newtype");
-        if NEWTYPE {
-            trace!("Newtype OK");
-            seed.deserialize(self.deserializer)
-        } else {
-            Err(ParseError::InvalidEnumVariant)
-        }
+        seed.deserialize(self.deserializer)
     }
 
     fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
@@ -559,87 +500,5 @@ mod deserializer_test {
         }
         let frame_checksum = u16::from_be_bytes([0x16, 0x8a]);
         assert_eq!(u32_deserializer.checksum, frame_checksum);
-    }
-
-    #[test]
-    fn deserialize_enum_checksum() {
-        struct ValueVisitor<'de> {
-            phantom: PhantomData<&'de ()>,
-        }
-        impl<'de> ValueVisitor<'de> {
-            pub fn new() -> ValueVisitor<'de> {
-                ValueVisitor {
-                    phantom: PhantomData,
-                }
-            }
-        }
-        impl<'de> serde::de::Visitor<'de> for ValueVisitor<'de> {
-            type Value = u16;
-            fn expecting(
-                &self,
-                _: &mut core::fmt::Formatter<'_>,
-            ) -> core::result::Result<(), core::fmt::Error> {
-                todo!()
-            }
-            fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(v)
-            }
-        }
-
-        struct TestVisitor<'de> {
-            phantom: PhantomData<&'de ()>,
-        }
-        impl<'de> TestVisitor<'de> {
-            pub fn new() -> TestVisitor<'de> {
-                TestVisitor {
-                    phantom: PhantomData,
-                }
-            }
-        }
-        impl<'de> serde::de::Visitor<'de> for TestVisitor<'de> {
-            type Value = DataType;
-            fn expecting(
-                &self,
-                _: &mut core::fmt::Formatter<'_>,
-            ) -> core::result::Result<(), core::fmt::Error> {
-                todo!()
-            }
-            fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::EnumAccess<'de>,
-            {
-                trace!("Visit enum");
-                let (v, _variant_visitor) = data.variant()?;
-                trace!("Exiting Visit enum");
-                Ok(v)
-            }
-        }
-
-        let frame_bytes: [u8; 16] = [
-            0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
-            0x00, 0x05,
-        ];
-        let mut deserializer = SynDeserializer::new(&frame_bytes);
-        for _v in frame_bytes.chunks(2) {
-            let visitor = ValueVisitor::new();
-            deserializer.deserialize_u16(visitor).unwrap();
-        }
-        let visitor = TestVisitor::new();
-        //Function flow: Visitor, Visitor.Value=DataType
-        // Deserializer-> Deserialize enum<Visitor>
-        //    Visitor.Visit_Enum(Data: Into_Deserializer for &str (StrDeserializer), with EnumAccess Trait)->V::Value
-        //         data.Variant<T>() -> (T,Variant Access), T: DeserializeSeed
-        //         data.VariantSeed<T>(seed:PhantomData) -> (T,Variant Access)
-        assert_eq!(
-            deserializer.deserialize_enum(
-                "DataType",
-                &["Header", "Cfg1", "Cfg2", "Cfg3", "Data", "Cmd"],
-                visitor
-            ),
-            Ok(DataType::Cmd(CmdType::TurnOffDataFrames))
-        );
     }
 }

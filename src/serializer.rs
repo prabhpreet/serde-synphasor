@@ -191,15 +191,15 @@ where
 
     fn serialize_newtype_variant<T: ?Sized>(
         self,
-        _name: &'static str,
-        _variant_index: u32,
-        _variant: &'static str,
-        _value: &T,
+        name: &'static str,
+        variant_index: u32,
+        variant: &'static str,
+        value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
         T: serde::Serialize,
     {
-        todo!()
+        value.serialize(self)
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
