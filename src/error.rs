@@ -1,3 +1,4 @@
+use log::error;
 #[derive(PartialEq, Debug)]
 pub enum ParseError {
     ConfigNeeded,      //Configuration needs to be provided
@@ -5,15 +6,19 @@ pub enum ParseError {
     BaseParseError(BaseParseError),
     Custom,
     IllegalAccess,
+    InvalidFrameSize,
     InvalidChecksum,
+    InvalidEnumVariant,
+    BytesExceedFrameSize,
 }
 
 impl serde::de::Error for ParseError {
-    fn custom<T>(_msg: T) -> Self
+    fn custom<T>(msg: T) -> Self
     where
         T: core::fmt::Display,
     {
-        todo!()
+        error!("{}", msg);
+        ParseError::Custom
     }
 }
 
@@ -42,11 +47,12 @@ pub enum SerializeError {
 }
 
 impl serde::ser::Error for SerializeError {
-    fn custom<T>(_msg: T) -> Self
+    fn custom<T>(msg: T) -> Self
     where
         T: core::fmt::Display,
     {
-        todo!()
+        error!("{}", msg);
+        SerializeError::Custom
     }
 }
 

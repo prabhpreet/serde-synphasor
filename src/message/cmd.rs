@@ -1,16 +1,6 @@
 use crate::{cmd, error::BaseParseError, ParseError, SerializeError};
-use serde::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Serialize};
 
-/*
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub struct Cmd {
-    #[serde(
-        serialize_with = "serialize_cmd_type",
-        deserialize_with = "deserialize_cmd_type"
-    )]
-    cmd: CmdType,
-}
- */
 pub(crate) fn deserialize_cmd_type<'de, D>(deserializer: D) -> Result<(CmdType), D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -66,8 +56,12 @@ where
         where
             E: serde::de::Error,
         {
-            self.bytes.copy_from_slice(v);
-            Ok(v.len())
+            self.bytes[0..v.len()].copy_from_slice(v);
+            if (v.len() < 2) {
+                Err(E::missing_field("CMD"))
+            } else {
+                Ok(v.len())
+            }
         }
     }
 
@@ -86,7 +80,7 @@ where
         4 => CmdType::SendCfg1Frame,
         5 => CmdType::SendCfg2Frame,
         6 => CmdType::SendCfg3Frame,
-        8 => CmdType::ExtendedFrame(len - 2, bytes),
+        8 => unimplemented!(),
         v @ 256..=4095 => CmdType::UserDesignatedCode(v),
         v => CmdType::ReservedUndesignatedCode(v),
     })
@@ -108,11 +102,8 @@ where
         CmdType::SendCfg1Frame => 4,
         CmdType::SendCfg2Frame => 5,
         CmdType::SendCfg3Frame => 6,
-        CmdType::ExtendedFrame(f_len, b) => {
-            if *f_len <= 65518 {
-                len += *f_len;
-                bytes[2..len].copy_from_slice(&b[..]);
-            }
+        CmdType::ExtendedFrame => {
+            unimplemented!();
             8
         }
         CmdType::UserDesignatedCode(v) if *v > 256 && *v <= 4095 => *v,
@@ -145,7 +136,7 @@ pub enum CmdType {
     SendCfg1Frame,
     SendCfg2Frame,
     SendCfg3Frame,
-    ExtendedFrame(usize, [u8; 65518]),
+    ExtendedFrame,
     UserDesignatedCode(u16),
     ReservedUndesignatedCode(u16),
 }

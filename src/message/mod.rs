@@ -15,7 +15,7 @@ pub struct Message {
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct Frame {
     sync: u16,
-    framesize: u16,
+    pub(crate) framesize: u16,
     idcode: u16,
     soc: u32,
     fracsec: u32,
@@ -382,7 +382,7 @@ mod serialize_test {
                 Token::Str("data"),
                 Token::Enum { name: "DataType" },
                 Token::Str("Data"),
-                Token::Bytes(&[0u8, 1u8]),
+                Token::Unit,
                 Token::StructEnd,
             ],
         );
