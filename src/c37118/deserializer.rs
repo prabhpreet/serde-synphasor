@@ -1,7 +1,8 @@
-use crate::{error::*, Frame, FrameDataU8, Message};
+use crate::c37118::error::*;
+use crate::c37118::message::{Frame, FrameDataU8, Message};
 use log::trace;
 use serde::{
-    de::{EnumAccess, IntoDeserializer, SeqAccess, VariantAccess, Visitor},
+    de::{EnumAccess, SeqAccess, VariantAccess},
     Deserialize, Deserializer,
 };
 
@@ -407,8 +408,6 @@ pub fn print_type_of<T>(_: &T) {
 
 #[cfg(test)]
 mod deserializer_test {
-
-    use crate::{CmdType, DataType};
 
     use super::*;
     use core::marker::PhantomData;

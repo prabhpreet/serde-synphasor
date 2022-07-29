@@ -1,30 +1,30 @@
 pub mod cmd;
-use crate::{deserializer::SynDeserializer, error::BaseParseError, ParseError};
+use crate::c37118::deserializer::SynDeserializer;
+use crate::c37118::error::{BaseParseError, ParseError};
+use crate::{u24, Time, TimeError, TimeQuality};
 pub use cmd::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
-#[serde(into = "Frame", try_from = "Frame")]
-pub struct Message {
+#[derive(Debug, PartialEq)]
+pub struct Message<'c> {
     pub version: FrameVersion,
     pub idcode: u16,
     pub time: Time,
-    pub data: DataType,
+    pub data: DataType<'c>,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize)]
-#[serde(try_from = "FrameDataU8")]
-pub(in crate) struct Frame {
+#[derive(Debug, Serialize, PartialEq)]
+pub(in crate) struct Frame<'c> {
     sync: u16,
     pub(crate) framesize: u16,
     idcode: u16,
     soc: u32,
     fracsec: u32,
-    data: DataType,
+    data: DataType<'c>,
 }
 
-impl From<Message> for Frame {
-    fn from(message: Message) -> Self {
+impl<'c> From<Message<'c>> for Frame<'c> {
+    fn from(message: Message<'c>) -> Self {
         const FRAME_OVERHEAD: u16 = 2 + //SYNC
             2 + //FRAMESIZE
             2 + //IDCODE 
@@ -94,7 +94,7 @@ pub(in crate) struct FrameDataU8<'a> {
     data: &'a [u8],
 }
 
-impl<'a> TryFrom<FrameDataU8<'a>> for Frame {
+impl<'a, 'c> TryFrom<FrameDataU8<'a>> for Frame<'c> {
     type Error = ParseError;
 
     fn try_from(value: FrameDataU8) -> Result<Self, Self::Error> {
@@ -107,7 +107,7 @@ impl<'a> TryFrom<FrameDataU8<'a>> for Frame {
             4 => DataType::Cmd(deserialize_cmd_type(&mut deserializer)?),
             5 => DataType::Cfg3,
             _ => {
-                return Err(ParseError::BaseParseError(BaseParseError::UnknownFrameType));
+                return Err(ParseError::BaseFrame(BaseParseError::UnknownFrameType));
             }
         };
 
@@ -122,20 +122,18 @@ impl<'a> TryFrom<FrameDataU8<'a>> for Frame {
     }
 }
 
-impl TryFrom<Frame> for Message {
+impl<'c> TryFrom<Frame<'c>> for Message<'c> {
     type Error = ParseError;
 
-    fn try_from(value: Frame) -> Result<Self, Self::Error> {
+    fn try_from(value: Frame<'c>) -> Result<Self, Self::Error> {
         // Check Sync: Frame synchronization word.
         if (value.sync & 0xFF00) != 0xAA00 {
-            return Err(ParseError::BaseParseError(
-                BaseParseError::IncorrectSyncWord,
-            ));
+            return Err(ParseError::BaseFrame(BaseParseError::IncorrectSyncWord));
         }
         //     Second byte: Frame type and version, divided as follows:
         //     Bit 8: Reserved for future definition, must be 0 for this standard version.
         if (value.sync & 0x0080) != 0x0000 {
-            return Err(ParseError::BaseParseError(
+            return Err(ParseError::BaseFrame(
                 BaseParseError::IncorrectReservedSyncBit,
             ));
         }
@@ -146,7 +144,7 @@ impl TryFrom<Frame> for Message {
             2 => FrameVersion::Std2011,
             //         Version 3 (0010) for messages added in this revision,IEEE Std C37.118.2-2011.
             _ => {
-                return Err(ParseError::BaseParseError(
+                return Err(ParseError::BaseFrame(
                     BaseParseError::UnknownFrameVersionNumber,
                 ))
             }
@@ -163,39 +161,10 @@ impl TryFrom<Frame> for Message {
     }
 }
 
-#[derive(PartialEq, Debug, Serialize, Clone)]
+#[derive(PartialEq, Debug, Serialize)]
 pub enum FrameVersion {
     Std2005,
     Std2011,
-}
-
-#[derive(PartialEq, Debug, Clone)]
-#[allow(non_camel_case_types)]
-pub struct u24(u32);
-
-impl u24 {
-    pub fn new(i: u32) -> Result<u24, ParseError> {
-        let base: u32 = 2;
-        if i < (base.pow(24)) {
-            Ok(u24(i))
-        } else {
-            //FRACSEC: Fracsec value much greater than 2^24 -1
-            Err(ParseError::TypeRangeOverflow)
-        }
-    }
-    pub fn encode(&self) -> u32 {
-        self.0
-    }
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub struct Time {
-    pub soc: u32,
-    pub fracsec: u24,
-    pub leap_second_direction: bool,
-    pub leap_second_occured: bool,
-    pub leap_second_pending: bool,
-    pub time_quality: TimeQuality,
 }
 
 impl Time {
@@ -245,7 +214,7 @@ impl Time {
     }
     fn decode(soc: u32, fracsec: u32) -> Result<Time, ParseError> {
         if (fracsec & 0x80000000) > 0 {
-            return Err(ParseError::BaseParseError(
+            return Err(ParseError::BaseFrame(
                 BaseParseError::IncorrectReservedFracsecBit,
             ));
         }
@@ -268,14 +237,11 @@ impl Time {
             0x02 => TimeQuality::UTC10ns,
             0x01 => TimeQuality::UTC1ns,
             0x00 => TimeQuality::Locked,
-            _ => {
-                return Err(ParseError::BaseParseError(
-                    BaseParseError::UnknownTimeQuality,
-                ))
-            }
+            _ => return Err(ParseError::BaseFrame(BaseParseError::UnknownTimeQuality)),
         };
 
-        let fracsec = u24::new(fracsec & (0x00FFFFFF))?;
+        let fracsec = u24::new(fracsec & (0x00FFFFFF))
+            .map_err(|e| ParseError::BaseFrame(BaseParseError::Fracsec(e)))?;
 
         Ok(Time {
             soc,
@@ -288,25 +254,8 @@ impl Time {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
-pub enum TimeQuality {
-    Fault,    //Fault- clock failure, time not reliable
-    UTC10s,   //Time within 10s of UTC
-    UTC1s,    //Time within 1s of UTC
-    UTC100ms, //Time within 100ms of UTC
-    UTC10ms,  //Time within 10ms of UTC
-    UTC1ms,   //Time within 1ms of UTC
-    UTC100us, //Time within 100us of UTC
-    UTC10us,  //Time within 10us of UTC
-    UTC1us,   //Time within 1us of UTC
-    UTC100ns, //Time within 100ns of UTC
-    UTC10ns,  //Time within 10ns of UTC
-    UTC1ns,   //Time within 1ns of UTC
-    Locked,   //Normal operation, clock locked to UTC traceable source
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub enum DataType {
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum DataType<'a> {
     Header,
     Cfg1,
     Cfg2,
@@ -316,10 +265,10 @@ pub enum DataType {
         serialize_with = "cmd::serialize_cmd_type",
         deserialize_with = "cmd::deserialize_cmd_type"
     )]
-    Cmd(CmdType),
+    Cmd(CmdType<'a>),
 }
 
-impl DataType {
+impl<'a> DataType<'a> {
     fn get_framesize(&self) -> u16 {
         match self {
             DataType::Header => todo!(),
@@ -328,7 +277,7 @@ impl DataType {
             DataType::Cfg3 => todo!(),
             DataType::Data => todo!(),
             DataType::Cmd(cmd) => match cmd {
-                CmdType::ExtendedFrame => todo!(),
+                CmdType::ExtendedFrame(c) => todo!(),
                 _ => 2,
             },
         }
@@ -340,11 +289,6 @@ mod serialize_test {
 
     use super::*;
     use serde_test::{assert_ser_tokens, Token};
-
-    #[test]
-    fn u24_exceeds_allowed_size() {
-        assert_eq!(u24::new(0xFF123456), Err(ParseError::TypeRangeOverflow));
-    }
 
     #[test]
     fn serialize_sync_idcode_soc_fracsec_encoding() {
@@ -361,9 +305,10 @@ mod serialize_test {
             },
             data: DataType::Cmd(CmdType::TurnOffDataFrames),
         };
+        let frame: Frame = message.into();
 
         assert_ser_tokens(
-            &message,
+            &frame,
             &[
                 Token::Struct {
                     name: "Frame",
@@ -404,8 +349,9 @@ mod serialize_test {
             data: DataType::Cmd(CmdType::TurnOffDataFrames),
         };
 
+        let frame: Frame = message.into();
         assert_ser_tokens(
-            &message,
+            &frame,
             &[
                 Token::Struct {
                     name: "Frame",
@@ -442,7 +388,7 @@ mod deserialize_test {
         let t = Time::decode(0, 0x80000000);
         assert_eq!(
             t,
-            Err(ParseError::BaseParseError(
+            Err(ParseError::BaseFrame(
                 BaseParseError::IncorrectReservedFracsecBit
             ))
         );
@@ -453,9 +399,7 @@ mod deserialize_test {
         let t = Time::decode(0, 0x0C000000);
         assert_eq!(
             t,
-            Err(ParseError::BaseParseError(
-                BaseParseError::UnknownTimeQuality
-            ))
+            Err(ParseError::BaseFrame(BaseParseError::UnknownTimeQuality))
         );
     }
 
@@ -472,20 +416,30 @@ mod deserialize_test {
                 leap_second_pending: true,
                 time_quality: TimeQuality::Fault,
             },
-            data: DataType::Data,
+            data: DataType::Cmd(CmdType::TurnOffDataFrames),
+        };
+        let frame: Frame = message.into();
+
+        let frame_u8 = FrameDataU8 {
+            sync: frame.sync,
+            idcode: frame.idcode,
+            soc: frame.soc,
+            fracsec: frame.fracsec,
+            framesize: frame.framesize,
+            data: &[0x01],
         };
 
         assert_de_tokens(
-            &message,
+            &frame_u8,
             &[
                 Token::Struct {
                     name: "FrameDataU8",
                     len: 6,
                 },
                 Token::Str("sync"),
-                Token::U16(0xAA02),
+                Token::U16(0xAA42),
                 Token::Str("framesize"),
-                Token::U16(0x0010),
+                Token::U16(0x0012),
                 Token::Str("idcode"),
                 Token::U16(0x0000),
                 Token::Str("soc"),
@@ -493,7 +447,7 @@ mod deserialize_test {
                 Token::Str("fracsec"),
                 Token::U32(0x7F000000),
                 Token::Str("data"),
-                Token::BorrowedBytes(&[]),
+                Token::BorrowedBytes(&[0x01]),
                 Token::StructEnd,
             ],
         );

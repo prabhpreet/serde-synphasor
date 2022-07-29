@@ -1,7 +1,35 @@
-use crate::{cmd, error::BaseParseError, ParseError, SerializeError};
+use crate::c37118::error::{BaseParseError, ParseError, SerializeError};
+use crate::Container;
 use serde::{de::Error, Deserialize, Serialize};
 
-pub(in crate::message) fn deserialize_cmd_type<'de, D>(deserializer: D) -> Result<CmdType, D::Error>
+pub const MAX_EXTENDED_FRAME_SIZE: usize = 65518;
+#[derive(Debug)]
+pub enum CmdType<'c> {
+    TurnOffDataFrames,
+    TurnOnDataFrames,
+    SendHdrFrame,
+    SendCfg1Frame,
+    SendCfg2Frame,
+    SendCfg3Frame,
+    ExtendedFrame(&'c dyn Container<u8, MAX_EXTENDED_FRAME_SIZE>),
+    UserDesignatedCode(u16),
+    ReservedUndesignatedCode(u16),
+}
+
+impl<'c> PartialEq for CmdType<'c> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::ExtendedFrame(l0), Self::ExtendedFrame(r0)) => l0.get() == r0.get(),
+            (Self::UserDesignatedCode(l0), Self::UserDesignatedCode(r0)) => l0 == r0,
+            (Self::ReservedUndesignatedCode(l0), Self::ReservedUndesignatedCode(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
+pub(in crate::c37118::message) fn deserialize_cmd_type<'de, 'a, D>(
+    deserializer: D,
+) -> Result<CmdType<'a>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -86,7 +114,7 @@ where
     })
 }
 
-pub(in crate::message) fn serialize_cmd_type<'a, S>(
+pub(in crate::c37118::message) fn serialize_cmd_type<'a, S>(
     cmd_type: &CmdType,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -102,7 +130,7 @@ where
         CmdType::SendCfg1Frame => 4,
         CmdType::SendCfg2Frame => 5,
         CmdType::SendCfg3Frame => 6,
-        CmdType::ExtendedFrame => {
+        CmdType::ExtendedFrame(c) => {
             unimplemented!();
             8
         }
@@ -126,17 +154,4 @@ where
 
     bytes[0..2].copy_from_slice(&u16::to_be_bytes(cmd)[..]);
     serializer.serialize_bytes(&bytes[0..len])
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum CmdType {
-    TurnOffDataFrames,
-    TurnOnDataFrames,
-    SendHdrFrame,
-    SendCfg1Frame,
-    SendCfg2Frame,
-    SendCfg3Frame,
-    ExtendedFrame,
-    UserDesignatedCode(u16),
-    ReservedUndesignatedCode(u16),
 }

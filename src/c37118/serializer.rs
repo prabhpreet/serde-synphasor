@@ -1,15 +1,19 @@
-use crate::{error::SerializeError, Container, Message};
+use crate::c37118::error::SerializeError;
+use crate::c37118::message::{Frame, FrameDataU8, Message};
+use crate::Container;
 use log::trace;
 use serde::{Serialize, Serializer};
 
-pub struct SynSerializer<B: Container<u8>> {
+pub const MAX_FRAMESIZE: usize = 65535;
+
+pub struct SynSerializer<B: Container<u8, MAX_FRAMESIZE>> {
     bytes: B,
     checksum: u16,
 }
 
 impl<B> SynSerializer<B>
 where
-    B: Container<u8>,
+    B: Container<u8, MAX_FRAMESIZE>,
 {
     pub fn new(bytes: B) -> SynSerializer<B> {
         SynSerializer {
@@ -20,7 +24,9 @@ where
     }
 
     fn enque(&mut self, v: u8) -> Result<(), SerializeError> {
-        self.bytes.enque(v)?;
+        self.bytes
+            .enque(v)
+            .map_err(SerializeError::ContainerError)?;
         let mut chk = self.checksum;
         let temp = (chk >> 8) ^ (v as u16);
         chk <<= 8;
@@ -34,8 +40,9 @@ where
         Ok(())
     }
 
-    pub fn to_bytes(mut self, m: &Message) -> Result<B, SerializeError> {
-        m.serialize(&mut self)?;
+    pub fn into_bytes(mut self, message: Message) -> Result<B, SerializeError> {
+        let frame: Frame = message.into();
+        frame.serialize(&mut self)?;
 
         //Add checksum
         self.serialize_end()?;
@@ -50,7 +57,7 @@ where
 
 impl<B> Serializer for &mut SynSerializer<B>
 where
-    B: Container<u8>,
+    B: Container<u8, MAX_FRAMESIZE>,
 {
     type Ok = ();
 
@@ -250,7 +257,7 @@ where
 
 impl<B> serde::ser::SerializeSeq for &mut SynSerializer<B>
 where
-    B: Container<u8>,
+    B: Container<u8, MAX_FRAMESIZE>,
 {
     type Ok = ();
 
@@ -270,7 +277,7 @@ where
 
 impl<B> serde::ser::SerializeMap for &mut SynSerializer<B>
 where
-    B: Container<u8>,
+    B: Container<u8, MAX_FRAMESIZE>,
 {
     type Ok = ();
 
@@ -297,7 +304,7 @@ where
 
 impl<B> serde::ser::SerializeStruct for &mut SynSerializer<B>
 where
-    B: Container<u8>,
+    B: Container<u8, MAX_FRAMESIZE>,
 {
     type Ok = ();
 
@@ -323,7 +330,7 @@ where
 
 impl<B> serde::ser::SerializeStructVariant for &mut SynSerializer<B>
 where
-    B: Container<u8>,
+    B: Container<u8, MAX_FRAMESIZE>,
 {
     type Ok = ();
 
@@ -347,7 +354,7 @@ where
 
 impl<B> serde::ser::SerializeTuple for &mut SynSerializer<B>
 where
-    B: Container<u8>,
+    B: Container<u8, MAX_FRAMESIZE>,
 {
     type Ok = ();
 
@@ -367,7 +374,7 @@ where
 
 impl<B> serde::ser::SerializeTupleStruct for &mut SynSerializer<B>
 where
-    B: Container<u8>,
+    B: Container<u8, MAX_FRAMESIZE>,
 {
     type Ok = ();
 
@@ -387,7 +394,7 @@ where
 
 impl<B> serde::ser::SerializeTupleVariant for &mut SynSerializer<B>
 where
-    B: Container<u8>,
+    B: Container<u8, MAX_FRAMESIZE>,
 {
     type Ok = ();
 
@@ -408,8 +415,11 @@ where
 #[cfg(test)]
 mod serializer_test {
 
+    use crate::container::ContainerError;
+
     use super::*;
     use test_log::test;
+    #[derive(Debug)]
     struct FixedContainer {
         bytes: [u8; 65535],
         index: usize,
@@ -423,8 +433,8 @@ mod serializer_test {
             }
         }
     }
-    impl Container<u8> for FixedContainer {
-        fn enque(&mut self, v: u8) -> Result<(), SerializeError> {
+    impl Container<u8, MAX_FRAMESIZE> for FixedContainer {
+        fn enque(&mut self, v: u8) -> Result<(), ContainerError> {
             self.bytes[self.index] = v;
             self.index += 1;
             Ok(())

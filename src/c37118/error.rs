@@ -1,15 +1,17 @@
+use crate::{ContainerError, TimeError};
 use log::error;
 #[derive(PartialEq, Debug)]
 pub enum ParseError {
     ConfigNeeded,      //Configuration needs to be provided
     TypeRangeOverflow, //Value overflow of allowed range for type
-    BaseParseError(BaseParseError),
+    BaseFrame(BaseParseError),
     Custom,
     IllegalAccess,
     InvalidFrameSize,
     InvalidChecksum,
     InvalidEnumVariant,
     BytesExceedFrameSize,
+    ContainerError(ContainerError),
 }
 
 impl serde::de::Error for ParseError {
@@ -38,12 +40,13 @@ pub enum BaseParseError {
     IncorrectReservedFracsecBit,
     UnknownTimeQuality,
     UnknownFrameType,
+    Fracsec(TimeError),
 }
 
 #[derive(PartialEq, Debug)]
 pub enum SerializeError {
-    SpaceExceeded,
     Custom,
+    ContainerError(ContainerError),
 }
 
 impl serde::ser::Error for SerializeError {

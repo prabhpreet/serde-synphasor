@@ -1,10 +1,14 @@
+use serde_synphasor::c37118::encoder::{Encoder, EncoderAllocator};
 use test_log::test;
 
+use serde_synphasor::c37118::{message::*, MAX_FRAMESIZE};
 use serde_synphasor::{Container, *};
 
 /**
  * Dynamically allocated ByteContainer for tests
 */
+
+#[derive(Debug)]
 struct VecContainer {
     bytes: std::vec::Vec<u8>,
     index: usize,
@@ -18,8 +22,8 @@ impl VecContainer {
         }
     }
 }
-impl Container<u8> for VecContainer {
-    fn enque(&mut self, v: u8) -> Result<(), error::SerializeError> {
+impl Container<u8, MAX_FRAMESIZE> for VecContainer {
+    fn enque(&mut self, v: u8) -> Result<(), ContainerError> {
         self.bytes.push(v);
         self.index += 1;
         Ok(())
@@ -48,16 +52,19 @@ fn base_frame_serialization() {
         data: DataType::Cmd(CmdType::TurnOffDataFrames),
     };
 
-    let bytes = VecContainer::new();
+    fn vec_allocator() -> VecContainer {
+        VecContainer::new()
+    }
+    let vec_allocator = EncoderAllocator::new(vec_allocator);
 
-    let serializer = SynSerializer::new(bytes);
+    let encoder = Encoder::new(vec_allocator);
 
-    //Ignore checksum, only include first 14 bytes
+    //Ignore checksum, only include first 16 bytes
     assert_eq!(
         [
             0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x34, 0x2e, 0xd5,
             0x00, 0x01, 0x56, 0x0b
         ][..16],
-        serializer.to_bytes(&message).unwrap().get()[..16]
+        encoder.encode(message).unwrap().get()[..16]
     );
 }
