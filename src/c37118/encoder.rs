@@ -1,6 +1,7 @@
 use super::error::SerializeError;
-use super::message::Message;
-use super::serializer::{SynSerializer, MAX_FRAMESIZE};
+use super::message::{CmdStore, Message, MAX_EXTENDED_FRAME_SIZE};
+use super::serializer::SynSerializer;
+use super::MAX_FRAMESIZE;
 use crate::Container;
 
 pub struct Encoder<C>
@@ -17,7 +18,10 @@ where
     pub fn new(allocator: EncoderAllocator<C>) -> Encoder<C> {
         Encoder { allocator }
     }
-    pub fn encode(&self, message: Message) -> Result<C, SerializeError> {
+    pub fn encode<CmdStorage>(&self, message: Message<CmdStorage>) -> Result<C, SerializeError>
+    where
+        CmdStorage: CmdStore,
+    {
         let container = self.allocator.allocate();
         let serializer = SynSerializer::new(container);
         serializer.into_bytes(message)

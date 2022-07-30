@@ -1,6 +1,7 @@
 use serde_synphasor::c37118::encoder::{Encoder, EncoderAllocator};
 use test_log::test;
 
+use serde::Serialize;
 use serde_synphasor::c37118::{message::*, MAX_FRAMESIZE};
 use serde_synphasor::{Container, *};
 
@@ -34,11 +35,39 @@ impl Container<u8, MAX_FRAMESIZE> for VecContainer {
     }
 }
 
+#[derive(Debug)]
+struct CmdStackContainer {
+    bytes: [u8; MAX_EXTENDED_FRAME_SIZE],
+    len: usize,
+}
+
+impl Serialize for CmdStackContainer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.serialize_impl(serializer)
+    }
+}
+
+impl Container<u8, MAX_EXTENDED_FRAME_SIZE> for CmdStackContainer {
+    fn enque(&mut self, v: u8) -> Result<(), ContainerError> {
+        self.bytes[self.len] = v;
+        self.len += 1;
+        Ok(())
+    }
+
+    fn get(&self) -> &[u8] {
+        &self.bytes[0..self.len]
+    }
+}
+impl CmdStore for CmdStackContainer {}
+
 /// Tests Basic Baseframe Serialization.
 /// Valid checksum validation is ignored in test
 #[test]
 fn base_frame_serialization() {
-    let message = Message {
+    let message = Message::<CmdStackContainer> {
         version: FrameVersion::Std2005,
         idcode: 60,
         time: Time {

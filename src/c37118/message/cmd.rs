@@ -1,22 +1,29 @@
-use crate::c37118::error::{BaseParseError, ParseError, SerializeError};
 use crate::Container;
-use serde::{de::Error, Deserialize, Serialize};
+use serde::de::DeserializeSeed;
+
+use super::CmdStore;
 
 pub const MAX_EXTENDED_FRAME_SIZE: usize = 65518;
 #[derive(Debug)]
-pub enum CmdType<'c> {
+pub enum CmdType<C>
+where
+    C: CmdStore,
+{
     TurnOffDataFrames,
     TurnOnDataFrames,
     SendHdrFrame,
     SendCfg1Frame,
     SendCfg2Frame,
     SendCfg3Frame,
-    ExtendedFrame(&'c dyn Container<u8, MAX_EXTENDED_FRAME_SIZE>),
+    ExtendedFrame(C),
     UserDesignatedCode(u16),
     ReservedUndesignatedCode(u16),
 }
 
-impl<'c> PartialEq for CmdType<'c> {
+impl<C> PartialEq for CmdType<C>
+where
+    C: CmdStore,
+{
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::ExtendedFrame(l0), Self::ExtendedFrame(r0)) => l0.get() == r0.get(),
@@ -27,11 +34,12 @@ impl<'c> PartialEq for CmdType<'c> {
     }
 }
 
-pub(in crate::c37118::message) fn deserialize_cmd_type<'de, 'a, D>(
+pub(in crate::c37118::message) fn deserialize_cmd_type<'de, C, D>(
     deserializer: D,
-) -> Result<CmdType<'a>, D::Error>
+) -> Result<CmdType<C>, D::Error>
 where
     D: serde::Deserializer<'de>,
+    C: CmdStore,
 {
     use core::marker::PhantomData;
     struct ValueVisitor<'de> {
@@ -114,12 +122,13 @@ where
     })
 }
 
-pub(in crate::c37118::message) fn serialize_cmd_type<'a, S>(
-    cmd_type: &CmdType,
+pub(in crate::c37118::message) fn serialize_cmd_type<C, S>(
+    cmd_type: &CmdType<C>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
+    C: CmdStore,
 {
     let mut bytes: [u8; 65520] = [0; 65520]; //Max allowable size: 2 bytes CMD + 65518 extended frame
     let mut len: usize = 2;

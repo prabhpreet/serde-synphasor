@@ -16,7 +16,7 @@ impl<const SIZE: usize> ReadableStackContainer<SIZE> {
     }
 }
 impl<const SIZE: usize> Container<u8, MAX_FRAMESIZE> for ReadableStackContainer<SIZE> {
-    fn enque(&mut self, v: u8) -> Result<(), ContainerError> {
+    fn enque(&mut self, _v: u8) -> Result<(), ContainerError> {
         Ok(())
     }
 
@@ -94,6 +94,8 @@ fn base_frame_deserialization_error_unknown_frame_type() {
     let decoder = Decoder::new(DecoderAllocator::new(create_phantom_container));
 
     let deserialized_message = decoder.decode(&container);
+    let equal =
+        deserialized_message == Err(ParseError::BaseFrame(BaseParseError::UnknownFrameType));
     assert_eq!(
         deserialized_message,
         Err(ParseError::BaseFrame(BaseParseError::UnknownFrameType))

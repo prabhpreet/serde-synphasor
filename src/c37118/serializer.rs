@@ -1,10 +1,10 @@
+use super::message::{BaseFrame, CmdStore};
+use super::MAX_FRAMESIZE;
 use crate::c37118::error::SerializeError;
-use crate::c37118::message::{Frame, FrameDataU8, Message};
+use crate::c37118::message::{Frame, Message, MAX_EXTENDED_FRAME_SIZE};
 use crate::Container;
 use log::trace;
 use serde::{Serialize, Serializer};
-
-pub const MAX_FRAMESIZE: usize = 65535;
 
 pub struct SynSerializer<B: Container<u8, MAX_FRAMESIZE>> {
     bytes: B,
@@ -40,8 +40,11 @@ where
         Ok(())
     }
 
-    pub fn into_bytes(mut self, message: Message) -> Result<B, SerializeError> {
-        let frame: Frame = message.into();
+    pub fn into_bytes<CmdContainer: CmdStore>(
+        mut self,
+        message: Message<CmdContainer>,
+    ) -> Result<B, SerializeError> {
+        let frame: Frame<CmdContainer> = message.into();
         frame.serialize(&mut self)?;
 
         //Add checksum

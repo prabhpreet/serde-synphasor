@@ -1,6 +1,6 @@
 use super::deserializer::SynDeserializer;
 use super::error::*;
-use super::message::{Frame, FrameDataU8, Message, MAX_EXTENDED_FRAME_SIZE};
+use super::message::{BaseFrame, CmdStore, Frame, Message, MAX_EXTENDED_FRAME_SIZE};
 use super::MAX_FRAMESIZE;
 use crate::{create_phantom_container, Container, PhantomContainer};
 use log::trace;
@@ -14,27 +14,26 @@ where
 
 impl<CmdContainer> Decoder<CmdContainer>
 where
-    CmdContainer: Container<u8, MAX_EXTENDED_FRAME_SIZE>,
+    CmdContainer: CmdStore,
 {
     pub fn new(allocator: DecoderAllocator<CmdContainer>) -> Decoder<CmdContainer> {
         Decoder { allocator }
     }
-    pub fn decode<C>(&self, deserialize_container: &C) -> Result<Message, ParseError>
+    pub fn decode<C>(&self, deserialize_container: &C) -> Result<Message<CmdContainer>, ParseError>
     where
         C: Container<u8, MAX_FRAMESIZE>,
     {
-        //let container = self.allocator.allocate();
-        //let serializer = SynDeserializer::new(container);
-        //serializer.into_bytes(message)
-
         let bytes = deserialize_container.get();
         let bytes_len: u16 = bytes
             .len()
             .try_into()
             .map_err(|_| ParseError::BytesExceedFrameSize)?;
+
+        let container = (self.allocator.create_cmd_framesize_container)();
+
         let mut deserializer = SynDeserializer::new(&bytes[..bytes.len() - 2]);
-        let frame = FrameDataU8::deserialize(&mut deserializer)?;
-        if frame.framesize != bytes_len {
+        let base_frame = BaseFrame::deserialize(&mut deserializer)?;
+        if base_frame.framesize != bytes_len {
             return Err(ParseError::InvalidFrameSize);
         }
         let checksum = bytes[bytes.len() - 2..]
@@ -42,7 +41,7 @@ where
             .map_err(|_| ParseError::IllegalAccess)?;
         let checksum = u16::from_be_bytes(checksum);
         if checksum == deserializer.get_checksum() {
-            let frame: Frame = frame.try_into()?;
+            let frame: Frame<CmdContainer> = (container, base_frame).try_into()?;
             let message = frame.try_into()?;
             Ok(message)
         } else {

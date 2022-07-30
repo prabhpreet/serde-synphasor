@@ -1,34 +1,12 @@
-use crate::c37118::error::*;
-use crate::c37118::message::{Frame, FrameDataU8, Message};
+use super::error::*;
+use super::message::MAX_EXTENDED_FRAME_SIZE;
+use crate::Container;
 use log::trace;
 use serde::{
     de::{EnumAccess, SeqAccess, VariantAccess},
     Deserialize, Deserializer,
 };
 
-pub fn from_bytes(bytes: &[u8]) -> Result<Message, ParseError> {
-    let bytes_len: u16 = bytes
-        .len()
-        .try_into()
-        .map_err(|_| ParseError::BytesExceedFrameSize)?;
-    let mut deserializer = SynDeserializer::new(&bytes[..bytes.len() - 2]);
-    let frame = FrameDataU8::deserialize(&mut deserializer)?;
-    if frame.framesize != bytes_len {
-        return Err(ParseError::InvalidFrameSize);
-    }
-    let checksum = bytes[bytes.len() - 2..]
-        .try_into()
-        .map_err(|_| ParseError::IllegalAccess)?;
-    let checksum = u16::from_be_bytes(checksum);
-    if checksum == deserializer.get_checksum() {
-        let frame: Frame = frame.try_into()?;
-        let message = frame.try_into()?;
-        Ok(message)
-    } else {
-        trace!("{:x}", deserializer.get_checksum());
-        Err(ParseError::InvalidChecksum)
-    }
-}
 pub struct SynDeserializer<'de> {
     bytes: &'de [u8],
     index: usize,
@@ -36,7 +14,7 @@ pub struct SynDeserializer<'de> {
 }
 
 impl<'de> SynDeserializer<'de> {
-    pub fn new(bytes: &'de [u8]) -> SynDeserializer {
+    pub fn new(bytes: &'de [u8]) -> SynDeserializer<'de> {
         SynDeserializer {
             bytes,
             index: 0,
@@ -409,6 +387,8 @@ pub fn print_type_of<T>(_: &T) {
 #[cfg(test)]
 mod deserializer_test {
 
+    use crate::{create_phantom_container, PhantomContainer};
+
     use super::*;
     use core::marker::PhantomData;
     use test_log::test;
@@ -444,6 +424,7 @@ mod deserializer_test {
             0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
             0x00, 0x05,
         ];
+
         let mut u16_deserializer = SynDeserializer::new(&frame_bytes);
         for v in frame_bytes.chunks(2) {
             let v: [u8; 2] = v.try_into().unwrap();
@@ -488,6 +469,7 @@ mod deserializer_test {
             0xaa, 0x41, 0x00, 0x12, 0x00, 0x3c, 0x48, 0x99, 0x90, 0x9a, 0x00, 0x90, 0x2e, 0x12,
             0x00, 0x05,
         ];
+
         let mut u32_deserializer = SynDeserializer::new(&frame_bytes);
         for v in frame_bytes.chunks(4) {
             let v: [u8; 4] = v.try_into().unwrap();

@@ -1,30 +1,68 @@
 pub mod cmd;
 use crate::c37118::deserializer::SynDeserializer;
 use crate::c37118::error::{BaseParseError, ParseError};
-use crate::{u24, Time, TimeError, TimeQuality};
+use crate::{u24, Container, PhantomContainer, Time, TimeQuality};
 pub use cmd::*;
 use serde::{Deserialize, Serialize};
 
+pub const MAX_FRAMESIZE: usize = 65535;
+
+pub trait CmdStore: Container<u8, MAX_EXTENDED_FRAME_SIZE> + Serialize {
+    fn serialize_impl<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(self.get())
+    }
+}
+
+impl CmdStore for PhantomContainer<u8, MAX_EXTENDED_FRAME_SIZE> {}
+
+impl Serialize for PhantomContainer<u8, MAX_EXTENDED_FRAME_SIZE> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.serialize_impl(serializer)
+    }
+}
+
+enum MessageStorage<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
+    Cmd(CmdContainer),
+}
+
 #[derive(Debug, PartialEq)]
-pub struct Message<'c> {
+pub struct Message<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     pub version: FrameVersion,
     pub idcode: u16,
     pub time: Time,
-    pub data: DataType<'c>,
+    pub data: DataType<CmdContainer>,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
-pub(in crate) struct Frame<'c> {
+#[derive(Debug, PartialEq, Serialize)]
+pub(in crate) struct Frame<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     sync: u16,
     pub(crate) framesize: u16,
     idcode: u16,
     soc: u32,
     fracsec: u32,
-    data: DataType<'c>,
+    data: DataType<CmdContainer>,
 }
 
-impl<'c> From<Message<'c>> for Frame<'c> {
-    fn from(message: Message<'c>) -> Self {
+impl<CmdContainer> From<Message<CmdContainer>> for Frame<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
+    fn from(message: Message<CmdContainer>) -> Self {
         const FRAME_OVERHEAD: u16 = 2 + //SYNC
             2 + //FRAMESIZE
             2 + //IDCODE 
@@ -85,7 +123,7 @@ impl<'c> From<Message<'c>> for Frame<'c> {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
-pub(in crate) struct FrameDataU8<'a> {
+pub(in crate) struct BaseFrame<'a> {
     sync: u16,
     pub(crate) framesize: u16,
     idcode: u16,
@@ -94,10 +132,13 @@ pub(in crate) struct FrameDataU8<'a> {
     data: &'a [u8],
 }
 
-impl<'a, 'c> TryFrom<FrameDataU8<'a>> for Frame<'c> {
+impl<'a, CmdContainer> TryFrom<(CmdContainer, BaseFrame<'a>)> for Frame<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     type Error = ParseError;
 
-    fn try_from(value: FrameDataU8) -> Result<Self, Self::Error> {
+    fn try_from((reference, value): (CmdContainer, BaseFrame)) -> Result<Self, Self::Error> {
         let mut deserializer = SynDeserializer::new(value.data);
         let data = match (value.sync & 0x0070u16) >> 4 {
             0 => DataType::Data,
@@ -122,10 +163,13 @@ impl<'a, 'c> TryFrom<FrameDataU8<'a>> for Frame<'c> {
     }
 }
 
-impl<'c> TryFrom<Frame<'c>> for Message<'c> {
+impl<CmdContainer> TryFrom<Frame<CmdContainer>> for Message<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     type Error = ParseError;
 
-    fn try_from(value: Frame<'c>) -> Result<Self, Self::Error> {
+    fn try_from(value: Frame<CmdContainer>) -> Result<Self, Self::Error> {
         // Check Sync: Frame synchronization word.
         if (value.sync & 0xFF00) != 0xAA00 {
             return Err(ParseError::BaseFrame(BaseParseError::IncorrectSyncWord));
@@ -255,7 +299,10 @@ impl Time {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub enum DataType<'a> {
+pub enum DataType<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     Header,
     Cfg1,
     Cfg2,
@@ -265,10 +312,13 @@ pub enum DataType<'a> {
         serialize_with = "cmd::serialize_cmd_type",
         deserialize_with = "cmd::deserialize_cmd_type"
     )]
-    Cmd(CmdType<'a>),
+    Cmd(CmdType<CmdContainer>),
 }
 
-impl<'a> DataType<'a> {
+impl<CmdContainer> DataType<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     fn get_framesize(&self) -> u16 {
         match self {
             DataType::Header => todo!(),
@@ -286,6 +336,8 @@ impl<'a> DataType<'a> {
 
 #[cfg(test)]
 mod serialize_test {
+
+    use core::char::MAX;
 
     use super::*;
     use serde_test::{assert_ser_tokens, Token};
@@ -305,7 +357,35 @@ mod serialize_test {
             },
             data: DataType::Cmd(CmdType::TurnOffDataFrames),
         };
-        let frame: Frame = message.into();
+
+        #[derive(Debug)]
+        struct SerializeContainer {
+            bytes: [u8; MAX_EXTENDED_FRAME_SIZE],
+            len: usize,
+        };
+
+        impl Serialize for SerializeContainer {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.serialize_impl(serializer)
+            }
+        }
+
+        impl Container<u8, MAX_EXTENDED_FRAME_SIZE> for SerializeContainer {
+            fn enque(&mut self, v: u8) -> Result<(), crate::ContainerError> {
+                self.bytes[self.len] = v;
+                self.len += 1;
+                Ok(())
+            }
+
+            fn get(&self) -> &[u8] {
+                &self.bytes[0..self.len]
+            }
+        }
+        impl CmdStore for SerializeContainer {}
+        let frame: Frame<SerializeContainer> = message.into();
 
         assert_ser_tokens(
             &frame,
@@ -349,7 +429,35 @@ mod serialize_test {
             data: DataType::Cmd(CmdType::TurnOffDataFrames),
         };
 
-        let frame: Frame = message.into();
+        #[derive(Debug)]
+        struct SerializeContainer {
+            bytes: [u8; MAX_EXTENDED_FRAME_SIZE],
+            len: usize,
+        };
+
+        impl Serialize for SerializeContainer {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.serialize_impl(serializer)
+            }
+        }
+
+        impl Container<u8, MAX_EXTENDED_FRAME_SIZE> for SerializeContainer {
+            fn enque(&mut self, v: u8) -> Result<(), crate::ContainerError> {
+                self.bytes[self.len] = v;
+                self.len += 1;
+                Ok(())
+            }
+
+            fn get(&self) -> &[u8] {
+                &self.bytes[0..self.len]
+            }
+        }
+        impl CmdStore for SerializeContainer {}
+        let frame: Frame<SerializeContainer> = message.into();
+
         assert_ser_tokens(
             &frame,
             &[
@@ -418,9 +526,36 @@ mod deserialize_test {
             },
             data: DataType::Cmd(CmdType::TurnOffDataFrames),
         };
-        let frame: Frame = message.into();
+        #[derive(Debug)]
+        struct SerializeContainer {
+            bytes: [u8; MAX_EXTENDED_FRAME_SIZE],
+            len: usize,
+        };
 
-        let frame_u8 = FrameDataU8 {
+        impl Serialize for SerializeContainer {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.serialize_impl(serializer)
+            }
+        }
+
+        impl Container<u8, MAX_EXTENDED_FRAME_SIZE> for SerializeContainer {
+            fn enque(&mut self, v: u8) -> Result<(), crate::ContainerError> {
+                self.bytes[self.len] = v;
+                self.len += 1;
+                Ok(())
+            }
+
+            fn get(&self) -> &[u8] {
+                &self.bytes[0..self.len]
+            }
+        }
+        impl CmdStore for SerializeContainer {}
+        let frame: Frame<SerializeContainer> = message.into();
+
+        let frame_u8 = BaseFrame {
             sync: frame.sync,
             idcode: frame.idcode,
             soc: frame.soc,
@@ -433,7 +568,7 @@ mod deserialize_test {
             &frame_u8,
             &[
                 Token::Struct {
-                    name: "FrameDataU8",
+                    name: "BaseFrame",
                     len: 6,
                 },
                 Token::Str("sync"),
