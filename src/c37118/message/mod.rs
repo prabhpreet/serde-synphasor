@@ -1,27 +1,68 @@
-use crate::{error::BaseParseError, ParseError};
+pub mod cmd;
+use crate::c37118::deserializer::SynDeserializer;
+use crate::c37118::error::{BaseParseError, ParseError};
+use crate::{u24, Container, PhantomContainer, Time, TimeQuality};
+pub use cmd::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
-#[serde(into = "Frame", try_from = "Frame")]
-pub struct Message {
+pub const MAX_FRAMESIZE: usize = 65535;
+
+pub trait CmdStore: Container<u8, MAX_EXTENDED_FRAME_SIZE> + Serialize {
+    fn serialize_impl<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(self.get())
+    }
+}
+
+impl CmdStore for PhantomContainer<u8, MAX_EXTENDED_FRAME_SIZE> {}
+
+impl Serialize for PhantomContainer<u8, MAX_EXTENDED_FRAME_SIZE> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.serialize_impl(serializer)
+    }
+}
+
+enum MessageStorage<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
+    Cmd(CmdContainer),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Message<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     pub version: FrameVersion,
     pub idcode: u16,
     pub time: Time,
-    pub data: DataType,
+    pub data: DataType<CmdContainer>,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct Frame {
+#[derive(Debug, PartialEq, Serialize)]
+pub(in crate) struct Frame<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     sync: u16,
-    framesize: u16,
+    pub(crate) framesize: u16,
     idcode: u16,
     soc: u32,
     fracsec: u32,
-    data: DataType,
+    data: DataType<CmdContainer>,
 }
 
-impl From<Message> for Frame {
-    fn from(message: Message) -> Self {
+impl<CmdContainer> From<Message<CmdContainer>> for Frame<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
+    fn from(message: Message<CmdContainer>) -> Self {
         const FRAME_OVERHEAD: u16 = 2 + //SYNC
             2 + //FRAMESIZE
             2 + //IDCODE 
@@ -52,7 +93,7 @@ impl From<Message> for Frame {
             DataType::Cfg1 => 2,
             DataType::Cfg2 => 3,
             DataType::Cfg3 => 5,
-            DataType::Cmd => 4,
+            DataType::Cmd(_) => 4,
         } << 4)
             | 0x0Fu8;
         sync &= data_type as u16 | 0xFF8F;
@@ -68,7 +109,7 @@ impl From<Message> for Frame {
         let (soc, fracsec) = message.time.encode();
 
         // TODO: Calculate framesize accurately
-        let framesize = FRAME_OVERHEAD;
+        let framesize = FRAME_OVERHEAD + message.data.get_framesize();
 
         Frame {
             sync,
@@ -81,20 +122,62 @@ impl From<Message> for Frame {
     }
 }
 
-impl TryFrom<Frame> for Message {
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub(in crate) struct BaseFrame<'a> {
+    sync: u16,
+    pub(crate) framesize: u16,
+    idcode: u16,
+    soc: u32,
+    fracsec: u32,
+    data: &'a [u8],
+}
+
+impl<'a, CmdContainer> TryFrom<(CmdContainer, BaseFrame<'a>)> for Frame<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     type Error = ParseError;
 
-    fn try_from(value: Frame) -> Result<Self, Self::Error> {
+    fn try_from((reference, value): (CmdContainer, BaseFrame)) -> Result<Self, Self::Error> {
+        let mut deserializer = SynDeserializer::new(value.data);
+        let data = match (value.sync & 0x0070u16) >> 4 {
+            0 => DataType::Data,
+            1 => DataType::Header,
+            2 => DataType::Cfg1,
+            3 => DataType::Cfg2,
+            4 => DataType::Cmd(deserialize_cmd_type(&mut deserializer)?),
+            5 => DataType::Cfg3,
+            _ => {
+                return Err(ParseError::BaseFrame(BaseParseError::UnknownFrameType));
+            }
+        };
+
+        Ok(Frame {
+            sync: value.sync,
+            framesize: value.framesize,
+            idcode: value.idcode,
+            soc: value.soc,
+            fracsec: value.fracsec,
+            data,
+        })
+    }
+}
+
+impl<CmdContainer> TryFrom<Frame<CmdContainer>> for Message<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
+    type Error = ParseError;
+
+    fn try_from(value: Frame<CmdContainer>) -> Result<Self, Self::Error> {
         // Check Sync: Frame synchronization word.
         if (value.sync & 0xFF00) != 0xAA00 {
-            return Err(ParseError::BaseParseError(
-                BaseParseError::IncorrectSyncWord,
-            ));
+            return Err(ParseError::BaseFrame(BaseParseError::IncorrectSyncWord));
         }
         //     Second byte: Frame type and version, divided as follows:
         //     Bit 8: Reserved for future definition, must be 0 for this standard version.
         if (value.sync & 0x0080) != 0x0000 {
-            return Err(ParseError::BaseParseError(
+            return Err(ParseError::BaseFrame(
                 BaseParseError::IncorrectReservedSyncBit,
             ));
         }
@@ -105,7 +188,7 @@ impl TryFrom<Frame> for Message {
             2 => FrameVersion::Std2011,
             //         Version 3 (0010) for messages added in this revision,IEEE Std C37.118.2-2011.
             _ => {
-                return Err(ParseError::BaseParseError(
+                return Err(ParseError::BaseFrame(
                     BaseParseError::UnknownFrameVersionNumber,
                 ))
             }
@@ -122,39 +205,10 @@ impl TryFrom<Frame> for Message {
     }
 }
 
-#[derive(PartialEq, Debug, Serialize, Clone)]
+#[derive(PartialEq, Debug, Serialize)]
 pub enum FrameVersion {
     Std2005,
     Std2011,
-}
-
-#[derive(PartialEq, Debug, Clone)]
-#[allow(non_camel_case_types)]
-pub struct u24(u32);
-
-impl u24 {
-    pub fn new(i: u32) -> Result<u24, ParseError> {
-        let base: u32 = 2;
-        if i < (base.pow(24)) {
-            Ok(u24(i))
-        } else {
-            //FRACSEC: Fracsec value much greater than 2^24 -1
-            Err(ParseError::TypeRangeOverflow)
-        }
-    }
-    pub fn encode(&self) -> u32 {
-        self.0
-    }
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub struct Time {
-    pub soc: u32,
-    pub fracsec: u24,
-    pub leap_second_direction: bool,
-    pub leap_second_occured: bool,
-    pub leap_second_pending: bool,
-    pub time_quality: TimeQuality,
 }
 
 impl Time {
@@ -204,7 +258,7 @@ impl Time {
     }
     fn decode(soc: u32, fracsec: u32) -> Result<Time, ParseError> {
         if (fracsec & 0x80000000) > 0 {
-            return Err(ParseError::BaseParseError(
+            return Err(ParseError::BaseFrame(
                 BaseParseError::IncorrectReservedFracsecBit,
             ));
         }
@@ -227,14 +281,11 @@ impl Time {
             0x02 => TimeQuality::UTC10ns,
             0x01 => TimeQuality::UTC1ns,
             0x00 => TimeQuality::Locked,
-            _ => {
-                return Err(ParseError::BaseParseError(
-                    BaseParseError::UnknownTimeQuality,
-                ))
-            }
+            _ => return Err(ParseError::BaseFrame(BaseParseError::UnknownTimeQuality)),
         };
 
-        let fracsec = u24::new(fracsec & (0x00FFFFFF))?;
+        let fracsec = u24::new(fracsec & (0x00FFFFFF))
+            .map_err(|e| ParseError::BaseFrame(BaseParseError::Fracsec(e)))?;
 
         Ok(Time {
             soc,
@@ -247,43 +298,49 @@ impl Time {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
-pub enum TimeQuality {
-    Fault,    //Fault- clock failure, time not reliable
-    UTC10s,   //Time within 10s of UTC
-    UTC1s,    //Time within 1s of UTC
-    UTC100ms, //Time within 100ms of UTC
-    UTC10ms,  //Time within 10ms of UTC
-    UTC1ms,   //Time within 1ms of UTC
-    UTC100us, //Time within 100us of UTC
-    UTC10us,  //Time within 10us of UTC
-    UTC1us,   //Time within 1us of UTC
-    UTC100ns, //Time within 100ns of UTC
-    UTC10ns,  //Time within 10ns of UTC
-    UTC1ns,   //Time within 1ns of UTC
-    Locked,   //Normal operation, clock locked to UTC traceable source
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub enum DataType {
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum DataType<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
     Header,
     Cfg1,
     Cfg2,
     Cfg3,
     Data,
-    Cmd,
+    #[serde(
+        serialize_with = "cmd::serialize_cmd_type",
+        deserialize_with = "cmd::deserialize_cmd_type"
+    )]
+    Cmd(CmdType<CmdContainer>),
+}
+
+impl<CmdContainer> DataType<CmdContainer>
+where
+    CmdContainer: CmdStore,
+{
+    fn get_framesize(&self) -> u16 {
+        match self {
+            DataType::Header => todo!(),
+            DataType::Cfg1 => todo!(),
+            DataType::Cfg2 => todo!(),
+            DataType::Cfg3 => todo!(),
+            DataType::Data => todo!(),
+            DataType::Cmd(cmd) => match cmd {
+                CmdType::ExtendedFrame(c) => todo!(),
+                _ => 2,
+            },
+        }
+    }
 }
 
 #[cfg(test)]
 mod serialize_test {
 
+    use core::char::MAX;
+
     use super::*;
     use serde_test::{assert_ser_tokens, Token};
-
-    #[test]
-    fn u24_exceeds_allowed_size() {
-        assert_eq!(u24::new(0xFF123456), Err(ParseError::TypeRangeOverflow));
-    }
 
     #[test]
     fn serialize_sync_idcode_soc_fracsec_encoding() {
@@ -298,11 +355,40 @@ mod serialize_test {
                 leap_second_pending: false,
                 time_quality: TimeQuality::Locked,
             },
-            data: DataType::Cmd,
+            data: DataType::Cmd(CmdType::TurnOffDataFrames),
         };
 
+        #[derive(Debug)]
+        struct SerializeContainer {
+            bytes: [u8; MAX_EXTENDED_FRAME_SIZE],
+            len: usize,
+        };
+
+        impl Serialize for SerializeContainer {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.serialize_impl(serializer)
+            }
+        }
+
+        impl Container<u8, MAX_EXTENDED_FRAME_SIZE> for SerializeContainer {
+            fn enque(&mut self, v: u8) -> Result<(), crate::ContainerError> {
+                self.bytes[self.len] = v;
+                self.len += 1;
+                Ok(())
+            }
+
+            fn get(&self) -> &[u8] {
+                &self.bytes[0..self.len]
+            }
+        }
+        impl CmdStore for SerializeContainer {}
+        let frame: Frame<SerializeContainer> = message.into();
+
         assert_ser_tokens(
-            &message,
+            &frame,
             &[
                 Token::Struct {
                     name: "Frame",
@@ -311,7 +397,7 @@ mod serialize_test {
                 Token::Str("sync"),
                 Token::U16(0xAA41),
                 Token::Str("framesize"),
-                Token::U16(0x0010),
+                Token::U16(0x0012),
                 Token::Str("idcode"),
                 Token::U16(0x003C),
                 Token::Str("soc"),
@@ -321,7 +407,7 @@ mod serialize_test {
                 Token::Str("data"),
                 Token::Enum { name: "DataType" },
                 Token::Str("Cmd"),
-                Token::Unit,
+                Token::Bytes(&[0u8, 1u8]),
                 Token::StructEnd,
             ],
         )
@@ -340,20 +426,49 @@ mod serialize_test {
                 leap_second_pending: true,
                 time_quality: TimeQuality::Fault,
             },
-            data: DataType::Data,
+            data: DataType::Cmd(CmdType::TurnOffDataFrames),
         };
 
+        #[derive(Debug)]
+        struct SerializeContainer {
+            bytes: [u8; MAX_EXTENDED_FRAME_SIZE],
+            len: usize,
+        };
+
+        impl Serialize for SerializeContainer {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.serialize_impl(serializer)
+            }
+        }
+
+        impl Container<u8, MAX_EXTENDED_FRAME_SIZE> for SerializeContainer {
+            fn enque(&mut self, v: u8) -> Result<(), crate::ContainerError> {
+                self.bytes[self.len] = v;
+                self.len += 1;
+                Ok(())
+            }
+
+            fn get(&self) -> &[u8] {
+                &self.bytes[0..self.len]
+            }
+        }
+        impl CmdStore for SerializeContainer {}
+        let frame: Frame<SerializeContainer> = message.into();
+
         assert_ser_tokens(
-            &message,
+            &frame,
             &[
                 Token::Struct {
                     name: "Frame",
                     len: 6,
                 },
                 Token::Str("sync"),
-                Token::U16(0xAA02),
+                Token::U16(0xAA42),
                 Token::Str("framesize"),
-                Token::U16(0x0010),
+                Token::U16(0x0012),
                 Token::Str("idcode"),
                 Token::U16(0x0000),
                 Token::Str("soc"),
@@ -362,8 +477,8 @@ mod serialize_test {
                 Token::U32(0x7F000000),
                 Token::Str("data"),
                 Token::Enum { name: "DataType" },
-                Token::Str("Data"),
-                Token::Unit,
+                Token::Str("Cmd"),
+                Token::Bytes(&[0u8, 1u8]),
                 Token::StructEnd,
             ],
         );
@@ -381,7 +496,7 @@ mod deserialize_test {
         let t = Time::decode(0, 0x80000000);
         assert_eq!(
             t,
-            Err(ParseError::BaseParseError(
+            Err(ParseError::BaseFrame(
                 BaseParseError::IncorrectReservedFracsecBit
             ))
         );
@@ -392,9 +507,7 @@ mod deserialize_test {
         let t = Time::decode(0, 0x0C000000);
         assert_eq!(
             t,
-            Err(ParseError::BaseParseError(
-                BaseParseError::UnknownTimeQuality
-            ))
+            Err(ParseError::BaseFrame(BaseParseError::UnknownTimeQuality))
         );
     }
 
@@ -411,20 +524,57 @@ mod deserialize_test {
                 leap_second_pending: true,
                 time_quality: TimeQuality::Fault,
             },
-            data: DataType::Data,
+            data: DataType::Cmd(CmdType::TurnOffDataFrames),
+        };
+        #[derive(Debug)]
+        struct SerializeContainer {
+            bytes: [u8; MAX_EXTENDED_FRAME_SIZE],
+            len: usize,
+        };
+
+        impl Serialize for SerializeContainer {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.serialize_impl(serializer)
+            }
+        }
+
+        impl Container<u8, MAX_EXTENDED_FRAME_SIZE> for SerializeContainer {
+            fn enque(&mut self, v: u8) -> Result<(), crate::ContainerError> {
+                self.bytes[self.len] = v;
+                self.len += 1;
+                Ok(())
+            }
+
+            fn get(&self) -> &[u8] {
+                &self.bytes[0..self.len]
+            }
+        }
+        impl CmdStore for SerializeContainer {}
+        let frame: Frame<SerializeContainer> = message.into();
+
+        let frame_u8 = BaseFrame {
+            sync: frame.sync,
+            idcode: frame.idcode,
+            soc: frame.soc,
+            fracsec: frame.fracsec,
+            framesize: frame.framesize,
+            data: &[0x01],
         };
 
         assert_de_tokens(
-            &message,
+            &frame_u8,
             &[
                 Token::Struct {
-                    name: "Frame",
+                    name: "BaseFrame",
                     len: 6,
                 },
                 Token::Str("sync"),
-                Token::U16(0xAA02),
+                Token::U16(0xAA42),
                 Token::Str("framesize"),
-                Token::U16(0x0010),
+                Token::U16(0x0012),
                 Token::Str("idcode"),
                 Token::U16(0x0000),
                 Token::Str("soc"),
@@ -432,9 +582,7 @@ mod deserialize_test {
                 Token::Str("fracsec"),
                 Token::U32(0x7F000000),
                 Token::Str("data"),
-                Token::Enum { name: "DataType" },
-                Token::Str("Data"),
-                Token::Unit,
+                Token::BorrowedBytes(&[0x01]),
                 Token::StructEnd,
             ],
         );
